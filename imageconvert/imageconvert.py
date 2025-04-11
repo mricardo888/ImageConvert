@@ -1,5 +1,5 @@
 """
-ImageConverter - A Python library for converting between different image formats
+ImageConvert - A Python library for converting between different image formats
 
 Supported formats:
 - JPEG (.jpg, .jpeg)
@@ -36,6 +36,8 @@ from reportlab.graphics import renderPM
 from svglib.svglib import svg2rlg
 
 pillow_heif.register_heif_opener()  # Register the HEIF opener with Pillow
+__all__ = ["ImageConvert"]
+
 
 # Windows creation time support (no-op on other platforms)
 try:

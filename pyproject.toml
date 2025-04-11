@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imageconvert"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python library for converting between different image formats with metadata preservation"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -14,8 +14,7 @@ authors = [{name = "mricardo", email = "ricardo.lee.cm@gmail.com"}]
 maintainers = [{name = "mricardo", email = "ricardo.lee.cm@gmail.com"}]
 keywords = ["image", "conversion", "metadata", "exif", "photos"]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Programming Language :: Python :: 3",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3.7",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
 ]
