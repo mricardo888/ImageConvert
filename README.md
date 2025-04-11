@@ -1,20 +1,22 @@
 # 🖼️ ImageConvert
 
 [![PyPI version](https://img.shields.io/pypi/v/imageconvert.svg)](https://pypi.org/project/imageconvert/)
+[![Python version](https://img.shields.io/pypi/pyversions/imageconvert.svg)](https://pypi.org/project/imageconvert/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**ImageConvert** is a Python library that allows you to convert images between various formats while preserving metadata (EXIF) and timestamps.
+**ImageConvert** is a Python library for converting images between different formats, while preserving metadata (EXIF) and timestamps.
 
+✅ **Compatible with Python 3.7 and above**  
 🔗 **Available on PyPI:** [https://pypi.org/project/imageconvert/](https://pypi.org/project/imageconvert/)
 
 ---
 
 ## 🔧 Features
 
-- Convert between common formats: JPEG, PNG, TIFF, WebP, BMP, SVG, RAW, HEIC/HEIF
+- Convert between formats: JPEG, PNG, TIFF, WebP, BMP, SVG, RAW, HEIC/HEIF
 - Preserve EXIF metadata and file timestamps
 - Batch conversion with optional recursion
-- Extract image information including GPS and camera metadata
+- Extract image metadata including GPS and camera details
 
 ---
 
@@ -43,9 +45,9 @@ pip install imageconvert
 
 ## 🚀 Usage
 
-### 🔁 Easy Conversion Example
+### 🔁 Easy Example
 
-If you're just looking to convert one image to another format, it's as simple as:
+If you just want to convert one image to another format:
 
 ```python
 from imageconvert import ImageConvert
@@ -53,13 +55,13 @@ from imageconvert import ImageConvert
 ImageConvert.convert("photo.jpg", "photo.png")
 ```
 
-That’s it! By default:
-- Quality is set to 95
-- Metadata and timestamps are preserved
+That’s it!  
+✅ Metadata and timestamps are preserved by default.  
+✅ Output format is automatically detected from the file extension.
 
 ---
 
-### ⚙️ Full Example with Options
+### ⚙️ Advanced Example with Options
 
 ```python
 from imageconvert import ImageConvert
@@ -100,5 +102,6 @@ print(info)
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+This project is licensed under the MIT License.  
+See the [LICENSE](./LICENSE) file for details.
 ```
