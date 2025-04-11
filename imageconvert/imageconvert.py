@@ -167,7 +167,7 @@ class ImageConvert:
         save_options = {}
 
         # Handle EXIF data for supported formats
-        if output_ext in ImageConverter.EXIF_SUPPORTED_FORMATS and 'exif' in metadata:
+        if output_ext in ImageConvert.EXIF_SUPPORTED_FORMATS and 'exif' in metadata:
             try:
                 exif_bytes = piexif.dump(metadata['exif'])
                 save_options['exif'] = exif_bytes
@@ -542,7 +542,7 @@ class ImageConvert:
 if __name__ == "__main__":
     # Single file conversion with metadata preservation
     try:
-        ImageConverter.convert(
+        ImageConvert.convert(
             "input.jpg",
             "output.png",
             quality=90,
@@ -555,7 +555,7 @@ if __name__ == "__main__":
 
     # Batch conversion with metadata preservation
     try:
-        converted = ImageConverter.batch_convert(
+        converted = ImageConvert.batch_convert(
             "input_folder",
             "output_folder",
             ".png",
@@ -569,7 +569,7 @@ if __name__ == "__main__":
 
     # Get detailed image info including EXIF data
     try:
-        info = ImageConverter.get_image_info("image.jpg", include_exif=True)
+        info = ImageConvert.get_image_info("image.jpg", include_exif=True)
 
         # Print basic info
         print(f"Image dimensions: {info['width']}x{info['height']}")

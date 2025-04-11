@@ -1,6 +1,6 @@
-# 🖼️ ImageConverter
+# 🖼️ ImageConvert
 
-ImageConverter is a Python library that allows you to convert images between various formats while preserving metadata (EXIF) and timestamps.
+ImageConvert is a Python library that allows you to convert images between various formats while preserving metadata (EXIF) and timestamps.
 
 ## 🔧 Features
 
@@ -33,9 +33,9 @@ pip install imageconvert
 ### Convert a single image
 
 ```python
-from imageconvert import ImageConverter
+from imageconvert import ImageConvert
 
-ImageConverter.convert(
+ImageConvert.convert(
     "input.jpg",
     "output.png",
     quality=90,
@@ -47,7 +47,7 @@ ImageConverter.convert(
 ### Batch convert a directory
 
 ```python
-ImageConverter.batch_convert(
+ImageConvert.batch_convert(
     "input_folder",
     "output_folder",
     ".webp",
@@ -58,7 +58,7 @@ ImageConverter.batch_convert(
 ### Get image metadata
 
 ```python
-info = ImageConverter.get_image_info("photo.jpg", include_exif=True)
+info = ImageConvert.get_image_info("photo.jpg", include_exif=True)
 print(info)
 ```
 
