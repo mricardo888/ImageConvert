@@ -43,7 +43,23 @@ pip install imageconvert
 
 ## 🚀 Usage
 
-### Convert a single image
+### 🔁 Easy Conversion Example
+
+If you're just looking to convert one image to another format, it's as simple as:
+
+```python
+from imageconvert import ImageConvert
+
+ImageConvert.convert("photo.jpg", "photo.png")
+```
+
+That’s it! By default:
+- Quality is set to 95
+- Metadata and timestamps are preserved
+
+---
+
+### ⚙️ Full Example with Options
 
 ```python
 from imageconvert import ImageConvert
@@ -52,23 +68,28 @@ ImageConvert.convert(
     "input.jpg",
     "output.png",
     quality=90,
+    dpi=(300, 300),
     preserve_metadata=True,
     preserve_timestamps=True
 )
 ```
 
-### Batch convert a directory
+---
+
+### 📂 Batch Convert a Directory
 
 ```python
 ImageConvert.batch_convert(
-    "input_folder",
-    "output_folder",
-    ".webp",
+    input_dir="input_folder",
+    output_dir="output_folder",
+    output_format=".webp",
     recursive=True
 )
 ```
 
-### Get image metadata
+---
+
+### 🕵️‍♂️ Get Image Metadata
 
 ```python
 info = ImageConvert.get_image_info("photo.jpg", include_exif=True)
