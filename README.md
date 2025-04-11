@@ -1,6 +1,13 @@
 # 🖼️ ImageConvert
 
-ImageConvert is a Python library that allows you to convert images between various formats while preserving metadata (EXIF) and timestamps.
+[![PyPI version](https://img.shields.io/pypi/v/imageconvert.svg)](https://pypi.org/project/imageconvert/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+**ImageConvert** is a Python library that allows you to convert images between various formats while preserving metadata (EXIF) and timestamps.
+
+🔗 **Available on PyPI:** [https://pypi.org/project/imageconvert/](https://pypi.org/project/imageconvert/)
+
+---
 
 ## 🔧 Features
 
@@ -8,6 +15,8 @@ ImageConvert is a Python library that allows you to convert images between vario
 - Preserve EXIF metadata and file timestamps
 - Batch conversion with optional recursion
 - Extract image information including GPS and camera metadata
+
+---
 
 ## 🧰 Supported Formats
 
@@ -22,11 +31,15 @@ ImageConvert is a Python library that allows you to convert images between vario
 | RAW    | `.raw`           |
 | SVG    | `.svg`           |
 
+---
+
 ## 📦 Installation
 
 ```bash
 pip install imageconvert
 ```
+
+---
 
 ## 🚀 Usage
 
@@ -62,6 +75,9 @@ info = ImageConvert.get_image_info("photo.jpg", include_exif=True)
 print(info)
 ```
 
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+```
