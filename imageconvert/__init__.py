@@ -5,7 +5,7 @@ This module provides functionality to convert between various image formats whil
 preserving metadata like EXIF information and file timestamps.
 """
 
-from .imageconverter import ImageConverter
+from .imageconvert import ImageConvert
 
 __version__ = "0.1.0"
-__all__ = ["ImageConverter"]
+__all__ = ["ImageConvert"]

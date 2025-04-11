@@ -17,28 +17,24 @@ Features:
 - Supports batch processing and directory recursion
 """
 
-import os
 import io
-import shutil
+import os
 import time
 from pathlib import Path
 from typing import Optional, Union, List, Dict, Any, Tuple
 
-# Core image handling
-from PIL import Image, ImageOps, ExifTags
-
 # EXIF metadata handling
 import piexif
-
-# SVG support
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPM
-
-# RAW support
-import rawpy
-
 # HEIF/HEIC support
 import pillow_heif
+# RAW support
+import rawpy
+# Core image handling
+from PIL import Image
+from reportlab.graphics import renderPM
+# SVG support
+from svglib.svglib import svg2rlg
+
 pillow_heif.register_heif_opener()  # Register the HEIF opener with Pillow
 
 # Windows creation time support (no-op on other platforms)
@@ -49,7 +45,7 @@ except ImportError:
     def setctime(path, time):
         pass
 
-class ImageConverter:
+class ImageConvert:
     """
     A class to convert images between different formats.
 
