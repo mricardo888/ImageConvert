@@ -6,34 +6,47 @@
 
 **ImageConvert** is a Python library for converting images between different formats, while preserving metadata (EXIF) and timestamps.
 
-✅ **Compatible with Python 3.7 and above**  
-🔗 **Available on PyPI:** [https://pypi.org/project/imageconvert/](https://pypi.org/project/imageconvert/)
+## 🚀 Key Features
 
----
+- **Format Support:** Convert between JPEG, PNG, TIFF, WebP, BMP, SVG, RAW, HEIC/HEIF, and AVIF
+- **Metadata Preservation:** Keep EXIF data and other metadata intact
+- **Timestamp Preservation:** Maintain file creation and modification times
+- **Batch Processing:** Convert entire directories with optional recursion
+- **Image Info Extraction:** Get detailed image metadata including GPS and camera details
 
-## 🔧 Features
+## 📋 Quick Usage Examples
 
-- Convert between formats: JPEG, PNG, TIFF, WebP, BMP, SVG, RAW, HEIC/HEIF
-- Preserve EXIF metadata and file timestamps
-- Batch conversion with optional recursion
-- Extract image metadata including GPS and camera details
+**Simple Conversion:**
+```python
+from imageconvert import ImageConvert
 
----
+# Convert from JPG to PNG (preserves metadata by default)
+ImageConvert.convert("photo.jpg", "photo.png")
 
-## 🧰 Supported Formats
+# Convert from any format to AVIF with quality control
+ImageConvert.convert("image.png", "image.avif", quality=80)
+```
 
-| Format | Extensions       |
-|--------|------------------|
-| JPEG   | `.jpg`, `.jpeg`  |
-| PNG    | `.png`           |
-| TIFF   | `.tiff`, `.tif`  |
-| WebP   | `.webp`          |
-| BMP    | `.bmp`           |
-| HEIF   | `.heif`, `.heic` |
-| RAW    | `.raw`           |
-| SVG    | `.svg`           |
+**Batch Conversion:**
+```python
+# Convert all supported images in a directory to WebP
+ImageConvert.batch_convert(
+    input_dir="photos", 
+    output_dir="converted",
+    output_format=".webp",
+    recursive=True
+)
+```
 
----
+**Get Image Info:**
+```python
+# Extract detailed image information
+info = ImageConvert.get_image_info("photo.jpg")
+print(f"Dimensions: {info['width']}x{info['height']}")
+print(f"Camera: {info.get('camera', 'Unknown')}")
+if 'gps' in info:
+    print(f"Location: {info['gps']['latitude']}, {info['gps']['longitude']}")
+```
 
 ## 📦 Installation
 
@@ -41,64 +54,22 @@
 pip install imageconvert
 ```
 
----
+✅ **Compatible with Python 3.7 and above**  
+ℹ️ **AVIF, HEIC, and HEIF read/write support requires `pillow-heif` (installed automatically)**
 
-## 🚀 Usage
+## 🧰 Supported Formats
 
-### 🔁 Easy Example
-
-If you just want to convert one image to another format:
-
-```python
-from imageconvert import ImageConvert
-
-ImageConvert.convert("photo.jpg", "photo.png")
-```
-
-That’s it!  
-✅ Metadata and timestamps are preserved by default.  
-✅ Output format is automatically detected from the file extension.
-
----
-
-### ⚙️ Advanced Example with Options
-
-```python
-from imageconvert import ImageConvert
-
-ImageConvert.convert(
-    "input.jpg",
-    "output.png",
-    quality=90,
-    dpi=(300, 300),
-    preserve_metadata=True,
-    preserve_timestamps=True
-)
-```
-
----
-
-### 📂 Batch Convert a Directory
-
-```python
-ImageConvert.batch_convert(
-    input_dir="input_folder",
-    output_dir="output_folder",
-    output_format=".webp",
-    recursive=True
-)
-```
-
----
-
-### 🕵️‍♂️ Get Image Metadata
-
-```python
-info = ImageConvert.get_image_info("photo.jpg", include_exif=True)
-print(info)
-```
-
----
+| Format | Extensions       | Read | Write | Notes                           |
+|--------|------------------|------|-------|---------------------------------|
+| JPEG   | `.jpg`, `.jpeg`  | ✓    | ✓     | Full metadata preservation      |
+| PNG    | `.png`           | ✓    | ✓     | Lossless compression            |
+| TIFF   | `.tiff`, `.tif`  | ✓    | ✓     | Full metadata preservation      |
+| WebP   | `.webp`          | ✓    | ✓     | Modern web format               |
+| BMP    | `.bmp`           | ✓    | ✓     | Basic bitmap format             |
+| HEIF   | `.heif`, `.heic` | ✓    | ✓     | ✅ Now supports saving too       |
+| AVIF   | `.avif`          | ✓    | ✓     | ✅ Requires pillow-heif          |
+| RAW    | `.raw`           | ✓    | ✗     | Camera raw format (read only)   |
+| SVG    | `.svg`           | ✓    | ✗     | Vector format (read only)       |
 
 ## 📄 License
 

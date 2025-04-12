@@ -12,11 +12,28 @@ Supported formats:
 - SVG (.svg)
 - RAW (.raw)
 - HEIF/HEIC (.heif, .heic)
+- AVIF (.avif)
 
 Features:
 - Preserves EXIF and other metadata during conversion
 - Maintains file creation and modification timestamps
 - Supports batch processing and directory recursion
+- Extracts metadata including EXIF, camera info, and GPS
+
+Usage examples:
+
+    from imageconvert import ImageConvert
+
+    # Convert a single image from PNG to AVIF
+    ImageConvert.convert("input.png", "output.avif")
+
+    # Batch convert an entire folder to WebP
+    ImageConvert.batch_convert("folder_in", "folder_out", output_format=".webp", recursive=True)
+
+    # Get detailed image information
+    info = ImageConvert.get_image_info("image.jpg")
+    print(info["width"], info["height"], info.get("camera"))
+
 """
 
 import io
@@ -32,29 +49,51 @@ from PIL import Image
 from reportlab.graphics import renderPM
 from svglib.svglib import svg2rlg
 
-pillow_heif.register_heif_opener()  # Register the HEIF opener with Pillow
-__all__ = ["ImageConvert"]
+# Register HEIF/AVIF support
+try:
+    # Try different registration methods for different pillow_heif versions
+    try:
+        pillow_heif.register_heif_opener()
+    except Exception:
+        pass
 
-# Windows creation time support (no-op on other platforms)
+    try:
+        pillow_heif.register_avif_opener()
+    except Exception:
+        pass
+
+    # Add PIL format registration
+    try:
+        Image.register_mime("AVIF", "image/avif")
+        Image.register_extension(".avif", "AVIF")
+        Image.register_mime("HEIF", "image/heif")
+        Image.register_extension(".heif", "HEIF")
+        Image.register_extension(".heic", "HEIF")
+    except Exception:
+        pass
+
+    has_avif_support = True
+except ImportError:
+    has_avif_support = False
+
 try:
     from win32_setctime import setctime
 except ImportError:
-    # Define a dummy function for non-Windows platforms
     def setctime(path, time):
         pass
 
-
 class ImageConvert:
     """
-    A class to convert images between different formats.
+    A class for converting images between different formats while preserving metadata.
 
-    Supports conversion between: JPG, JPEG, PNG, BMP, TIFF, TIF, WebP, HEIF, HEIC, SVG, and RAW formats.
-    Preserves metadata including EXIF data and file timestamps.
+    This class provides static methods for converting individual images, batch processing
+    directories, and extracting image metadata.
     """
 
+    # Supported file extensions
     SUPPORTED_EXTENSIONS = [
         ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif",
-        ".webp", ".heif", ".heic", ".svg", ".raw"
+        ".webp", ".heif", ".heic", ".svg", ".raw", ".avif"
     ]
 
     # Formats that support EXIF metadata
@@ -62,31 +101,51 @@ class ImageConvert:
         ".jpg", ".jpeg", ".tiff", ".tif", ".webp"
     ]
 
-    # Map PIL format names to extensions
-    FORMAT_TO_EXT = {
-        "JPEG": ".jpg",
-        "PNG": ".png",
-        "BMP": ".bmp",
-        "TIFF": ".tiff",
-        "WEBP": ".webp",
-    }
-
     @staticmethod
     def get_extension(filename: str) -> str:
-        """Get the lowercase extension from a filename."""
+        """
+        Extract the file extension from a filename.
+
+        Args:
+            filename (str): The path or filename to extract extension from.
+
+        Returns:
+            str: The lowercase file extension including the dot (e.g., '.jpg').
+        """
         return os.path.splitext(filename)[1].lower()
 
     @classmethod
     def is_supported_format(cls, filename: str) -> bool:
-        """Check if the file format is supported by the converter."""
+        """
+        Check if the file format is supported by the library.
+
+        Args:
+            filename (str): The path or filename to check.
+
+        Returns:
+            bool: True if the format is supported, False otherwise.
+
+        Note:
+            AVIF format requires the pillow-heif library to be properly installed.
+        """
         ext = cls.get_extension(filename)
+        if ext == '.avif' and not has_avif_support:
+            return False
         return ext in cls.SUPPORTED_EXTENSIONS
 
     @classmethod
     def _load_image(cls, input_path: Union[str, Path]) -> Tuple[Image.Image, Dict[str, Any]]:
         """
-        Load an image from the given path based on its format.
-        Returns a tuple of (PIL Image object, metadata dictionary).
+        Internal method to load an image and its metadata.
+
+        Args:
+            input_path (Union[str, Path]): Path to the input image.
+
+        Returns:
+            Tuple[Image.Image, Dict[str, Any]]: Tuple containing the image object and metadata dictionary.
+
+        Raises:
+            ValueError: If the file format is not supported.
         """
         input_path = str(input_path)
         ext = cls.get_extension(input_path)
@@ -96,49 +155,32 @@ class ImageConvert:
             'accessed': os.path.getatime(input_path)
         }}
 
-        # Store file system timestamps
-
-        if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.heif', '.heic']:
-            # Standard formats handled directly by PIL (including HEIF/HEIC via pillow_heif)
+        if ext in cls.SUPPORTED_EXTENSIONS:
             image = Image.open(input_path)
-
-            # Extract EXIF data if present
-            if ext in cls.EXIF_SUPPORTED_FORMATS or ext in ['.heif', '.heic']:
+            if ext in cls.EXIF_SUPPORTED_FORMATS or ext in ['.heif', '.heic', '.avif']:
                 try:
                     exif_dict = piexif.load(image.info.get('exif', b''))
                     metadata['exif'] = exif_dict
                 except Exception:
-                    # File might not have EXIF data
                     pass
-
-            # Extract other metadata from image.info
             for key, value in image.info.items():
-                if key != 'exif':  # We already handled exif separately
+                if key != 'exif':
                     metadata[key] = value
-
             return image, metadata
 
         elif ext == '.svg':
-            # SVG format
             drawing = svg2rlg(input_path)
             image = Image.open(io.BytesIO(renderPM.drawToString(drawing, fmt='PNG')))
-
-            # SVGs don't have EXIF, but we might extract XML metadata if needed
-            # For now, just including file system metadata
             return image, metadata
 
         elif ext == '.raw':
-            # RAW format
             with rawpy.imread(input_path) as raw:
                 rgb = raw.postprocess()
-                # Try to extract metadata from RAW
                 try:
                     if hasattr(raw, 'metadata') and raw.metadata is not None:
                         metadata['raw_metadata'] = raw.metadata
                 except Exception:
                     pass
-
-            # Convert numpy array to PIL Image
             image = Image.fromarray(rgb)
             return image, metadata
 
@@ -146,448 +188,413 @@ class ImageConvert:
             raise ValueError(f"Unsupported file format: {ext}")
 
     @staticmethod
-    def _apply_metadata(
-            image: Image.Image,
-            metadata: Dict[str, Any],
-            output_ext: str
-    ) -> Tuple[Image.Image, Dict[str, Any]]:
+    def _apply_metadata(image: Image.Image, metadata: Dict[str, Any], output_ext: str) -> Tuple[Image.Image, Dict[str, Any]]:
         """
-        Apply metadata to an image object based on the output format.
+        Internal method to apply metadata to an image.
 
         Args:
-            image: PIL Image object
-            metadata: Dictionary of metadata
-            output_ext: Output file extension
+            image (Image.Image): The image object.
+            metadata (Dict[str, Any]): Metadata dictionary.
+            output_ext (str): The output file extension.
 
         Returns:
-            Tuple of (image, save_options)
+            Tuple[Image.Image, Dict[str, Any]]: Tuple containing the image with metadata and save options.
         """
         save_options = {}
-
-        # Handle EXIF data for supported formats
         if output_ext in ImageConvert.EXIF_SUPPORTED_FORMATS and 'exif' in metadata:
             try:
                 exif_bytes = piexif.dump(metadata['exif'])
                 save_options['exif'] = exif_bytes
             except Exception as e:
                 print(f"Warning: Could not apply EXIF data: {e}")
-
-        # Handle other metadata
         for key, value in metadata.items():
             if key not in ['exif', 'file_timestamps', 'raw_metadata']:
-                # Skip certain metadata that needs special handling
                 if isinstance(value, (str, int, float, bytes)):
-                    # Only copy simple types directly to image.info
                     image.info[key] = value
-
-        # Explicitly return both objects
         return image, save_options
 
     @staticmethod
     def _apply_file_timestamps(output_path: str, timestamps: Dict[str, float]) -> None:
         """
-        Apply file system timestamps to the output file.
+        Internal method to apply original timestamps to a file.
 
         Args:
-            output_path: Path to the output file
-            timestamps: Dictionary with 'created', 'modified', and 'accessed' timestamps
+            output_path (str): Path to the output file.
+            timestamps (Dict[str, float]): Dictionary containing timestamp information.
         """
-        # Set modification and access times
         os.utime(output_path, (timestamps['accessed'], timestamps['modified']))
-
-        # Set creation time on Windows (no-op on other platforms)
         if os.name == 'nt':
             setctime(output_path, timestamps['created'])
 
     @classmethod
-    def convert(
-            cls,
-            input_path: Union[str, Path],
-            output_path: Union[str, Path],
-            quality: int = 95,
-            dpi: Optional[tuple] = None,
-            preserve_metadata: bool = True,
-            preserve_timestamps: bool = True
-    ) -> str:
+    def convert(cls, input_path: Union[str, Path], output_path: Union[str, Path], quality: int = 95,
+                dpi: Optional[tuple] = None, preserve_metadata: bool = True,
+                preserve_timestamps: bool = True) -> str:
         """
         Convert an image from one format to another.
 
         Args:
-            input_path: Path to the input image file
-            output_path: Path where the converted image will be saved
-            quality: Quality for lossy formats (0-100)
-            dpi: Optional DPI tuple (x_dpi, y_dpi) for the output image
-            preserve_metadata: Whether to preserve image metadata (EXIF, etc.)
-            preserve_timestamps: Whether to preserve file timestamps
+            input_path (Union[str, Path]): Path to the input image file.
+            output_path (Union[str, Path]): Path for the output image file.
+            quality (int, optional): Quality setting for lossy formats (1-100). Defaults to 95.
+            dpi (Optional[tuple], optional): DPI setting as (x, y) tuple. Defaults to None.
+            preserve_metadata (bool, optional): Whether to preserve image metadata. Defaults to True.
+            preserve_timestamps (bool, optional): Whether to preserve file timestamps. Defaults to True.
 
         Returns:
-            The path to the converted image
+            str: Path to the output file.
 
         Raises:
-            ValueError: If the input or output format is not supported
-            FileNotFoundError: If the input file doesn't exist
+            FileNotFoundError: If the input file does not exist.
+            ValueError: If input or output format is not supported.
+            RuntimeError: If AVIF support is required but not available.
+            NotImplementedError: If conversion to SVG or RAW is attempted.
+
+        Examples:
+            >>> ImageConvert.convert("input.jpg", "output.png")
+            'output.png'
+
+            >>> ImageConvert.convert("input.raw", "output.tiff", quality=100, preserve_metadata=True)
+            'output.tiff'
         """
-        # Convert to string if Path objects
         input_path = str(input_path)
         output_path = str(output_path)
 
-        # Check if input file exists
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
-        # Check if input and output formats are supported
-        if not cls.is_supported_format(input_path):
-            raise ValueError(f"Unsupported input format: {cls.get_extension(input_path)}")
-
-        if not cls.is_supported_format(output_path):
-            raise ValueError(f"Unsupported output format: {cls.get_extension(output_path)}")
-
-        # Get the output extension
+        input_ext = cls.get_extension(input_path)
         output_ext = cls.get_extension(output_path)
 
-        # Load the image based on its format and get metadata
-        image, metadata = cls._load_image(input_path)
+        if (input_ext == '.avif' or output_ext == '.avif') and not has_avif_support:
+            raise RuntimeError("AVIF format requires 'pillow-heif'. Install with: pip install pillow-heif")
 
-        # Set DPI if provided or preserve from metadata
+        if not cls.is_supported_format(input_path):
+            raise ValueError(f"Unsupported input format: {input_ext}")
+        if not cls.is_supported_format(output_path):
+            raise ValueError(f"Unsupported output format: {output_ext}")
+
+        image, metadata = cls._load_image(input_path)
         if dpi:
             image.info['dpi'] = dpi
 
-        # Prepare base save options based on output format
         save_options = {}
-
         if output_ext in ['.jpg', '.jpeg']:
             save_options['quality'] = quality
             save_options['optimize'] = True
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-
         elif output_ext == '.png':
             save_options['optimize'] = True
-
         elif output_ext in ['.tiff', '.tif']:
             save_options['compression'] = 'tiff_lzw'
-
         elif output_ext == '.webp':
             save_options['quality'] = quality
-            save_options['method'] = 6  # Higher quality but slower
-
+            save_options['method'] = 6
         elif output_ext == '.bmp':
-            # BMP doesn't have specific options
             pass
-
+        elif output_ext == '.avif':
+            save_options['quality'] = quality
+            save_options['lossless'] = False
         elif output_ext in ['.heif', '.heic']:
-            # PIL doesn't natively support HEIF/HEIC saving
-            raise NotImplementedError("Saving to HEIF/HEIC is not yet implemented")
-
+            save_options['quality'] = quality
         elif output_ext == '.svg':
-            # PIL doesn't support saving to SVG
             raise NotImplementedError("Conversion to SVG is not supported")
-
         elif output_ext == '.raw':
-            # Cannot save to RAW format
             raise NotImplementedError("Conversion to RAW is not supported")
 
-        # Apply metadata if requested
         if preserve_metadata:
             image, metadata_options = cls._apply_metadata(image, metadata, output_ext)
             save_options.update(metadata_options)
 
-        # Save the image
-        image.save(output_path, **save_options)
+        ext_to_format = {
+            '.jpg': 'JPEG',
+            '.jpeg': 'JPEG',
+            '.png': 'PNG',
+            '.bmp': 'BMP',
+            '.tiff': 'TIFF',
+            '.tif': 'TIFF',
+            '.webp': 'WEBP',
+            '.avif': 'AVIF',
+            '.heif': 'HEIF',
+            '.heic': 'HEIF',
+        }
 
-        # Apply original timestamps if requested
+        image_format = ext_to_format.get(output_ext, None)
+
+        # Special handling for AVIF and HEIF formats
+        if output_ext in ['.avif', '.heif', '.heic']:
+            try:
+                # Convert to RGB if needed
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+
+                # Try multiple approaches to handle different pillow_heif versions
+
+                # Approach 1: Try using from_pillow method (common in many versions)
+                try:
+                    heif_image = pillow_heif.from_pillow(image)
+                    if output_ext == '.avif':
+                        heif_image.save(output_path, quality=save_options.get('quality', 95), codec='av1')
+                    else:
+                        heif_image.save(output_path, quality=save_options.get('quality', 95))
+                    return output_path
+                except (AttributeError, TypeError):
+                    pass
+
+                # Approach 2: Try direct PIL save after registration (works in some versions)
+                try:
+                    image.save(output_path, format=image_format, **save_options)
+                    return output_path
+                except (KeyError, ValueError, AttributeError):
+                    pass
+
+                # If we got here, both approaches failed
+                raise RuntimeError("Could not find a compatible method to save HEIF/AVIF images")
+
+            except Exception as e:
+                raise RuntimeError(f"Error saving {output_ext} format: {e}. Make sure pillow_heif is installed correctly.")
+        else:
+            image.save(output_path, format=image_format, **save_options)
+
         if preserve_timestamps and 'file_timestamps' in metadata:
             cls._apply_file_timestamps(output_path, metadata['file_timestamps'])
 
         return output_path
 
     @classmethod
-    def batch_convert(
-            cls,
-            input_dir: Union[str, Path],
-            output_dir: Union[str, Path],
-            output_format: str,
-            quality: int = 95,
-            dpi: Optional[tuple] = None,
-            recursive: bool = False,
-            preserve_metadata: bool = True,
-            preserve_timestamps: bool = True
-    ) -> List[str]:
+    def batch_convert(cls, input_dir: Union[str, Path], output_dir: Union[str, Path],
+                     output_format: str = None, recursive: bool = False, quality: int = 95,
+                     preserve_metadata: bool = True, preserve_timestamps: bool = True,
+                     skip_existing: bool = True) -> List[str]:
         """
-        Convert all supported images in a directory to the specified format.
+        Convert multiple images in a directory to a specified format.
 
         Args:
-            input_dir: Directory containing input images
-            output_dir: Directory where converted images will be saved
-            output_format: Target format (e.g., '.png', '.jpg')
-            quality: Quality for lossy formats (0-100)
-            dpi: Optional DPI tuple (x_dpi, y_dpi) for output images
-            recursive: Whether to process subdirectories
-            preserve_metadata: Whether to preserve image metadata (EXIF, etc.)
-            preserve_timestamps: Whether to preserve file timestamps
+            input_dir (Union[str, Path]): Input directory containing images.
+            output_dir (Union[str, Path]): Output directory for converted images.
+            output_format (str, optional): Target format with dot (e.g., '.webp').
+                                          If None, preserves original format. Defaults to None.
+            recursive (bool, optional): Whether to process subdirectories. Defaults to False.
+            quality (int, optional): Quality setting for lossy formats (1-100). Defaults to 95.
+            preserve_metadata (bool, optional): Whether to preserve image metadata. Defaults to True.
+            preserve_timestamps (bool, optional): Whether to preserve file timestamps. Defaults to True.
+            skip_existing (bool, optional): Skip files that already exist in the output directory. Defaults to True.
 
         Returns:
-            List of paths to the converted images
+            List[str]: List of paths to all converted files.
 
         Raises:
-            ValueError: If the output format is not supported
-            NotADirectoryError: If input_dir is not a directory
+            FileNotFoundError: If the input directory does not exist.
+            ValueError: If the output format is not supported.
+
+        Examples:
+            >>> ImageConvert.batch_convert("photos", "converted", output_format=".webp")
+            ['converted/img1.webp', 'converted/img2.webp', ...]
+
+            >>> ImageConvert.batch_convert("raw_photos", "processed", recursive=True, preserve_metadata=False)
+            ['processed/img1.jpg', 'processed/vacation/img2.jpg', ...]
         """
-        # Normalize paths
-        input_dir = str(input_dir)
-        output_dir = str(output_dir)
+        input_dir = Path(input_dir)
+        output_dir = Path(output_dir)
 
-        # Check if output format starts with a dot
-        if not output_format.startswith('.'):
-            output_format = f".{output_format}"
+        if not input_dir.exists():
+            raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
-        # Check if output format is supported
-        if output_format not in cls.SUPPORTED_EXTENSIONS:
+        if output_format and not cls.is_supported_format(f"dummy{output_format}"):
             raise ValueError(f"Unsupported output format: {output_format}")
 
-        # Check if input directory exists
-        if not os.path.isdir(input_dir):
-            raise NotADirectoryError(f"Input directory not found: {input_dir}")
-
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-
+        output_dir.mkdir(parents=True, exist_ok=True)
         converted_files = []
 
-        # Walk through the directory
-        for root, dirs, files in os.walk(input_dir):
-            # Skip if not recursive and not in the top directory
-            if not recursive and root != input_dir:
+        # Determine which files to process
+        if recursive:
+            all_files = list(input_dir.glob('**/*'))
+        else:
+            all_files = list(input_dir.glob('*'))
+
+        image_files = [f for f in all_files if f.is_file() and cls.is_supported_format(str(f))]
+
+        for input_file in image_files:
+            # Calculate relative path to maintain directory structure
+            rel_path = input_file.relative_to(input_dir)
+
+            if output_format:
+                output_file = output_dir / rel_path.with_suffix(output_format)
+            else:
+                output_file = output_dir / rel_path
+
+            # Create parent directories if needed
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Skip if output file exists and skip_existing is True
+            if skip_existing and output_file.exists():
                 continue
 
-            # Create corresponding output subdirectory if recursive
-            if recursive and root != input_dir:
-                rel_path = os.path.relpath(root, input_dir)
-                sub_output_dir = os.path.join(output_dir, rel_path)
-                os.makedirs(sub_output_dir, exist_ok=True)
-            else:
-                sub_output_dir = output_dir
-
-            # Process each file
-            for file in files:
-                input_path = os.path.join(root, file)
-
-                # Check if the file is a supported image
-                if cls.is_supported_format(input_path):
-                    # Get base filename without extension
-                    base_name = os.path.splitext(file)[0]
-
-                    # Create output path with new extension
-                    output_path = os.path.join(sub_output_dir, f"{base_name}{output_format}")
-
-                    try:
-                        # Convert the image
-                        converted_path = cls.convert(
-                            input_path,
-                            output_path,
-                            quality=quality,
-                            dpi=dpi,
-                            preserve_metadata=preserve_metadata,
-                            preserve_timestamps=preserve_timestamps
-                        )
-                        converted_files.append(converted_path)
-                    except Exception as e:
-                        print(f"Error converting {input_path}: {e}")
+            try:
+                result = cls.convert(
+                    input_file,
+                    output_file,
+                    quality=quality,
+                    preserve_metadata=preserve_metadata,
+                    preserve_timestamps=preserve_timestamps
+                )
+                converted_files.append(result)
+            except Exception as e:
+                print(f"Error converting {input_file}: {e}")
 
         return converted_files
 
     @classmethod
-    def get_image_info(cls, input_path: Union[str, Path], include_exif: bool = True) -> dict:
+    def get_image_info(cls, image_path: Union[str, Path]) -> Dict[str, Any]:
         """
-        Get information about an image file.
+        Extract detailed information from an image file.
 
         Args:
-            input_path: Path to the image file
-            include_exif: Whether to include detailed EXIF data
+            image_path (Union[str, Path]): Path to the image file.
 
         Returns:
-            Dictionary containing image information
+            Dict[str, Any]: Dictionary containing image information including:
+                - dimensions (width, height)
+                - format (image format)
+                - mode (color mode)
+                - timestamps (created, modified, accessed)
+                - EXIF data (if available)
+                - camera information (if available in EXIF)
+                - GPS data (if available in EXIF)
+                - other metadata
 
         Raises:
-            ValueError: If the format is not supported
-            FileNotFoundError: If the file doesn't exist
+            FileNotFoundError: If the image file does not exist.
+            ValueError: If the file format is not supported.
+
+        Examples:
+            >>> info = ImageConvert.get_image_info("vacation.jpg")
+            >>> print(f"Image size: {info['width']}x{info['height']}")
+            Image size: 3840x2160
+
+            >>> if 'gps' in info:
+            ...     print(f"Location: {info['gps']}")
+            Location: {'latitude': 37.7749, 'longitude': -122.4194}
         """
-        # Convert to string if Path object
-        input_path = str(input_path)
+        image_path = Path(image_path)
 
-        # Check if file exists
-        if not os.path.exists(input_path):
-            raise FileNotFoundError(f"File not found: {input_path}")
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {image_path}")
 
-        # Check if format is supported
-        if not cls.is_supported_format(input_path):
-            raise ValueError(f"Unsupported format: {cls.get_extension(input_path)}")
+        if not cls.is_supported_format(str(image_path)):
+            raise ValueError(f"Unsupported image format: {image_path.suffix}")
 
-        # Get file size
-        file_size = os.path.getsize(input_path)
+        # Load the image and metadata
+        image, metadata = cls._load_image(image_path)
 
-        # Get image extension
-        ext = cls.get_extension(input_path)
-
-        # Load image and metadata
-        image, metadata = cls._load_image(input_path)
-
-        # Get timestamps
-        timestamps = metadata.get('file_timestamps', {})
-
-        # Convert timestamps to readable format
-        readable_timestamps = {}
-        for key, value in timestamps.items():
-            readable_timestamps[key] = time.ctime(value)
-
-        # Get information
+        # Basic image information
         info = {
-            'path': input_path,
-            'format': image.format,
-            'extension': ext,
-            'mode': image.mode,
-            'size': image.size,
+            'filename': image_path.name,
+            'path': str(image_path),
             'width': image.width,
             'height': image.height,
-            'file_size': file_size,
-            'file_size_mb': round(file_size / (1024 * 1024), 2),
-            'creation_time': readable_timestamps.get('created'),
-            'modification_time': readable_timestamps.get('modified'),
-            'access_time': readable_timestamps.get('accessed'),
+            'format': image.format,
+            'mode': image.mode,
+            'timestamps': metadata.get('file_timestamps', {})
         }
 
-        # Add DPI information if available
-        if 'dpi' in image.info:
-            info['dpi'] = image.info['dpi']
+        # Process EXIF data if available
+        if 'exif' in metadata:
+            exif_data = metadata['exif']
 
-        # Add metadata
-        if include_exif and 'exif' in metadata:
-            exif_info = {}
-            exif_dict = metadata['exif']
+            # Extract camera information
+            if '0th' in exif_data and piexif.ImageIFD.Make in exif_data['0th']:
+                make = exif_data['0th'][piexif.ImageIFD.Make]
+                model = exif_data['0th'].get(piexif.ImageIFD.Model, b'')
 
-            # Process EXIF data
-            for ifd in exif_dict:
-                if ifd == 'thumbnail':
-                    continue
+                if isinstance(make, bytes):
+                    make = make.decode('utf-8', errors='replace').strip('\x00')
+                if isinstance(model, bytes):
+                    model = model.decode('utf-8', errors='replace').strip('\x00')
 
-                if isinstance(exif_dict[ifd], dict):
-                    for tag, value in exif_dict[ifd].items():
-                        # Try to map tag to readable name
-                        tag_name = None
-                        try:
-                            if ifd == 0:  # Main image IFD
-                                tag_name = piexif.TAGS['Image'][tag]['name']
-                            elif ifd == 1:  # Exif IFD
-                                tag_name = piexif.TAGS['Exif'][tag]['name']
-                            elif ifd == 2:  # GPS IFD
-                                tag_name = piexif.TAGS['GPS'][tag]['name']
-                            elif ifd == 3:  # Interop IFD
-                                tag_name = piexif.TAGS['Interop'][tag]['name']
-                        except KeyError:
-                            tag_name = f"Unknown ({tag})"
+                info['camera'] = {
+                    'make': make,
+                    'model': model
+                }
 
-                        # Convert byte strings to regular strings when possible
-                        if isinstance(value, bytes):
-                            try:
-                                value = value.decode('utf-8')
-                            except UnicodeDecodeError:
-                                value = f"Binary data ({len(value)} bytes)"
+                # Add exposure settings if available
+                if 'Exif' in exif_data:
+                    exif = exif_data['Exif']
+                    exposure_settings = {}
 
-                        exif_info[tag_name] = value
+                    if piexif.ExifIFD.ExposureTime in exif:
+                        num, den = exif[piexif.ExifIFD.ExposureTime]
+                        exposure_settings['exposure_time'] = f"{num}/{den}s"
 
-            # Extract commonly accessed EXIF data
-            if 'DateTimeOriginal' in exif_info:
-                info['date_taken'] = exif_info['DateTimeOriginal']
+                    if piexif.ExifIFD.FNumber in exif:
+                        num, den = exif[piexif.ExifIFD.FNumber]
+                        exposure_settings['f_number'] = f"f/{num/den:.1f}"
 
-            if 'Make' in exif_info and 'Model' in exif_info:
-                info['camera'] = f"{exif_info['Make']} {exif_info['Model']}"
+                    if piexif.ExifIFD.ISOSpeedRatings in exif:
+                        exposure_settings['iso'] = exif[piexif.ExifIFD.ISOSpeedRatings]
 
-            # Location data if available
-            gps_info = exif_dict.get(2, {})
-            if gps_info:
-                try:
-                    latref = gps_info.get(1, b'N').decode('ascii')
-                    lat = gps_info.get(2, ((0, 1), (0, 1), (0, 1)))
-                    lonref = gps_info.get(3, b'E').decode('ascii')
-                    lon = gps_info.get(4, ((0, 1), (0, 1), (0, 1)))
+                    if exposure_settings:
+                        info['camera']['exposure'] = exposure_settings
 
-                    # Check if we have valid GPS coordinates before calculating
-                    if all(isinstance(x, tuple) and len(x) == 2 for x in lat) and \
-                            all(isinstance(x, tuple) and len(x) == 2 for x in lon):
+            # Extract GPS information if available
+            if 'GPS' in exif_data and exif_data['GPS']:
+                gps_data = exif_data['GPS']
+                gps_info = {}
 
-                        # Check for division by zero
-                        if all(x[1] != 0 for x in lat) and all(x[1] != 0 for x in lon):
-                            latitude = lat[0][0] / lat[0][1] + lat[1][0] / (60 * lat[1][1]) + lat[2][0] / (
-                                        3600 * lat[2][1])
-                            if latref == 'S': latitude = -latitude
+                # Extract latitude
+                if (piexif.GPSIFD.GPSLatitudeRef in gps_data and
+                    piexif.GPSIFD.GPSLatitude in gps_data):
+                    lat_ref = gps_data[piexif.GPSIFD.GPSLatitudeRef]
+                    lat = gps_data[piexif.GPSIFD.GPSLatitude]
 
-                            longitude = lon[0][0] / lon[0][1] + lon[1][0] / (60 * lon[1][1]) + lon[2][0] / (
-                                        3600 * lon[2][1])
-                            if lonref == 'W': longitude = -longitude
+                    if isinstance(lat_ref, bytes):
+                        lat_ref = lat_ref.decode('ascii')
 
-                            info['gps'] = {'latitude': latitude, 'longitude': longitude}
-                except (ValueError, TypeError, KeyError, IndexError, ZeroDivisionError) as e:
-                    # Handle specific exceptions instead of bare except
-                    # GPS extraction can be complex, skip if there are issues
-                    info['gps_error'] = str(e)
+                    if len(lat) == 3:
+                        lat_value = lat[0][0]/lat[0][1] + lat[1][0]/(lat[1][1]*60) + lat[2][0]/(lat[2][1]*3600)
+                        if lat_ref == 'S':
+                            lat_value = -lat_value
+                        gps_info['latitude'] = lat_value
 
-            # Add all EXIF data if requested
-            if include_exif:
-                info['exif_data'] = exif_info
+                # Extract longitude
+                if (piexif.GPSIFD.GPSLongitudeRef in gps_data and
+                    piexif.GPSIFD.GPSLongitude in gps_data):
+                    lon_ref = gps_data[piexif.GPSIFD.GPSLongitudeRef]
+                    lon = gps_data[piexif.GPSIFD.GPSLongitude]
+
+                    if isinstance(lon_ref, bytes):
+                        lon_ref = lon_ref.decode('ascii')
+
+                    if len(lon) == 3:
+                        lon_value = lon[0][0]/lon[0][1] + lon[1][0]/(lon[1][1]*60) + lon[2][0]/(lon[2][1]*3600)
+                        if lon_ref == 'W':
+                            lon_value = -lon_value
+                        gps_info['longitude'] = lon_value
+
+                # Extract altitude
+                if piexif.GPSIFD.GPSAltitude in gps_data:
+                    alt = gps_data[piexif.GPSIFD.GPSAltitude]
+                    alt_ref = gps_data.get(piexif.GPSIFD.GPSAltitudeRef, 0)
+
+                    alt_value = alt[0] / alt[1]
+                    if alt_ref == 1:
+                        alt_value = -alt_value
+                    gps_info['altitude'] = alt_value
+
+                if gps_info:
+                    info['gps'] = gps_info
+
+            # Add raw EXIF data for advanced users
+            info['exif_raw'] = metadata['exif']
+
+        # Include any RAW metadata if available
+        if 'raw_metadata' in metadata:
+            info['raw_metadata'] = metadata['raw_metadata']
+
+        # Include any other metadata
+        for key, value in metadata.items():
+            if key not in ['exif', 'file_timestamps', 'raw_metadata'] and isinstance(value, (str, int, float)):
+                info[key] = value
 
         return info
-
-
-# Example usage
-if __name__ == "__main__":
-    # Single file conversion with metadata preservation
-    try:
-        ImageConvert.convert(
-            "input.jpg",
-            "output.png",
-            quality=90,
-            preserve_metadata=True,
-            preserve_timestamps=True
-        )
-        print("Conversion successful with metadata preserved!")
-    except Exception as e:
-        print(f"Error: {e}")
-
-    # Batch conversion with metadata preservation
-    try:
-        converted = ImageConvert.batch_convert(
-            "input_folder",
-            "output_folder",
-            ".png",
-            recursive=True,
-            preserve_metadata=True,
-            preserve_timestamps=True
-        )
-        print(f"Converted {len(converted)} images with metadata preserved")
-    except Exception as e:
-        print(f"Error: {e}")
-
-    # Get detailed image info including EXIF data
-    try:
-        info = ImageConvert.get_image_info("image.jpg", include_exif=True)
-
-        # Print basic info
-        print(f"Image dimensions: {info['width']}x{info['height']}")
-        print(f"Format: {info['format']}")
-        print(f"File size: {info['file_size_mb']} MB")
-
-        # Print metadata if available
-        if 'date_taken' in info:
-            print(f"Date taken: {info['date_taken']}")
-        if 'camera' in info:
-            print(f"Camera: {info['camera']}")
-        if 'gps' in info and 'latitude' in info['gps'] and 'longitude' in info['gps']:
-            print(f"Location: {info['gps']['latitude']}, {info['gps']['longitude']}")
-        elif 'gps_error' in info:
-            print(f"GPS data available but could not be parsed: {info['gps_error']}")
-
-        # Print timestamps
-        print(f"Created: {info['creation_time']}")
-        print(f"Modified: {info['modification_time']}")
-    except Exception as e:
-        print(f"Error: {e}")
