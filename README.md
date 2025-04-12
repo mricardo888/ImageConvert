@@ -74,4 +74,4 @@ pip install imageconvert
 ## 📄 License
 
 This project is licensed under the MIT License.  
-See the [LICENSE](./LICENSE) file for details.
+See the [LICENSE](https://github.com/mricardo888/ImageConvert/blob/main/LICENSE) file for details.
