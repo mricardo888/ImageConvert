@@ -3,6 +3,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/imageconvert.svg)](https://pypi.org/project/imageconvert/)
 [![Python version](https://img.shields.io/pypi/pyversions/imageconvert.svg)](https://pypi.org/project/imageconvert/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Docs](https://img.shields.io/badge/documentation-blue)](https://ricardos-projects.gitbook.io/imageconvert-docs)
+
 
 **ImageConvert** is a Python library for converting images between different formats, while preserving metadata (EXIF) and timestamps.
 
@@ -31,7 +33,7 @@ ImageConvert.convert("image.png", "image.avif", quality=80)
 ```python
 # Convert all supported images in a directory to WebP
 ImageConvert.batch_convert(
-    input_dir="photos", 
+    input_dir="photos",
     output_dir="converted",
     output_format=".webp",
     recursive=True
@@ -55,9 +57,9 @@ pip install imageconvert
 ```
 
 ✅ **Compatible with Python 3.7 and above**  
-ℹ️ **AVIF, HEIC, and HEIF read/write support requires `pillow-heif` (installed automatically)**
+💡 **AVIF, HEIC, and HEIF read/write support requires `pillow-heif` (installed automatically)**
 
-## 🧰 Supported Formats
+## 🩰 Supported Formats
 
 | Format | Extensions       | Read | Write | Notes                           |
 |--------|------------------|------|-------|---------------------------------|
@@ -71,7 +73,13 @@ pip install imageconvert
 | RAW    | `.raw`           | ✓    | ✗     | Camera raw format (read only)   |
 | SVG    | `.svg`           | ✓    | ✗     | Vector format (read only)       |
 
+## 📃 Full Documentation
+
+Explore the complete documentation and examples here:  
+👉 [https://ricardos-projects.gitbook.io/imageconvert-docs](https://ricardos-projects.gitbook.io/imageconvert-docs)
+
 ## 📄 License
 
 This project is licensed under the MIT License.  
 See the [LICENSE](https://github.com/mricardo888/ImageConvert/blob/main/LICENSE) file for details.
+
