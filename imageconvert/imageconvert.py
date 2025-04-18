@@ -4,7 +4,7 @@ ImageConvert - A Python library for converting between different image formats
 Author: Ricardo (https://github.com/mricardo888)
 
 Supported formats:
-- JPEG (.jpg, .jpeg)
+- JPEG (.jpg, .jpeg, .jfif)
 - PNG (.png)
 - BMP (.bmp)
 - TIFF (.tiff, .tif)
@@ -13,12 +13,14 @@ Supported formats:
 - RAW (.raw)
 - HEIF/HEIC (.heif, .heic)
 - AVIF (.avif)
+- PDF (.pdf)
 
 Features:
 - Preserves EXIF and other metadata during conversion
 - Maintains file creation and modification timestamps
 - Supports batch processing and directory recursion
 - Extracts metadata including EXIF, camera info, and GPS
+- PDF support for both reading and writing images
 
 Usage examples:
 
@@ -34,19 +36,28 @@ Usage examples:
     info = ImageConvert.get_image_info("image.jpg")
     print(info["width"], info["height"], info.get("camera"))
 
+    # Convert PDF to images
+    ImageConvert.pdf_to_images("document.pdf", "output_folder", format=".jpg")
+
+    # Convert images to PDF
+    ImageConvert.images_to_pdf(["img1.jpg", "img2.png"], "output.pdf")
+
 """
 
 import io
 import os
-import time
 from pathlib import Path
 from typing import Optional, Union, List, Dict, Any, Tuple
 
+import fitz
 import piexif
 import pillow_heif
 import rawpy
 from PIL import Image
 from reportlab.graphics import renderPM
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 from svglib.svglib import svg2rlg
 
 # Register HEIF/AVIF support
@@ -76,6 +87,13 @@ try:
 except ImportError:
     has_avif_support = False
 
+# Register JFIF as JPEG variant
+try:
+    Image.register_mime("JFIF", "image/jpeg")
+    Image.register_extension(".jfif", "JPEG")
+except Exception:
+    pass
+
 try:
     from win32_setctime import setctime
 except ImportError:
@@ -93,12 +111,13 @@ class ImageConvert:
     # Supported file extensions
     SUPPORTED_EXTENSIONS = [
         ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif",
-        ".webp", ".heif", ".heic", ".svg", ".raw", ".avif"
+        ".webp", ".heif", ".heic", ".svg", ".raw", ".avif",
+        ".jfif", ".pdf"
     ]
 
     # Formats that support EXIF metadata
     EXIF_SUPPORTED_FORMATS = [
-        ".jpg", ".jpeg", ".tiff", ".tif", ".webp"
+        ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".jfif"
     ]
 
     @staticmethod
@@ -155,7 +174,7 @@ class ImageConvert:
             'accessed': os.path.getatime(input_path)
         }}
 
-        if ext in cls.SUPPORTED_EXTENSIONS:
+        if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.heif', '.heic', '.avif', '.jfif']:
             image = Image.open(input_path)
             if ext in cls.EXIF_SUPPORTED_FORMATS or ext in ['.heif', '.heic', '.avif']:
                 try:
@@ -184,6 +203,29 @@ class ImageConvert:
             image = Image.fromarray(rgb)
             return image, metadata
 
+        elif ext == '.pdf':
+            # Extract the first page of the PDF as an image
+            pdf_document = fitz.open(input_path)
+            if len(pdf_document) > 0:
+                metadata['pdf_info'] = {
+                    'page_count': len(pdf_document),
+                    'title': pdf_document.metadata.get('title', ''),
+                    'author': pdf_document.metadata.get('author', ''),
+                    'subject': pdf_document.metadata.get('subject', ''),
+                    'keywords': pdf_document.metadata.get('keywords', '')
+                }
+
+                # Convert first page to image
+                first_page = pdf_document.load_page(0)
+                pix = first_page.get_pixmap(alpha=False)
+                img_data = pix.tobytes("png")
+                image = Image.open(io.BytesIO(img_data))
+                pdf_document.close()
+                return image, metadata
+            else:
+                pdf_document.close()
+                raise ValueError(f"PDF file has no pages: {input_path}")
+
         else:
             raise ValueError(f"Unsupported file format: {ext}")
 
@@ -208,7 +250,7 @@ class ImageConvert:
             except Exception as e:
                 print(f"Warning: Could not apply EXIF data: {e}")
         for key, value in metadata.items():
-            if key not in ['exif', 'file_timestamps', 'raw_metadata']:
+            if key not in ['exif', 'file_timestamps', 'raw_metadata', 'pdf_info']:
                 if isinstance(value, (str, int, float, bytes)):
                     image.info[key] = value
         return image, save_options
@@ -256,6 +298,9 @@ class ImageConvert:
 
             >>> ImageConvert.convert("input.raw", "output.tiff", quality=100, preserve_metadata=True)
             'output.tiff'
+
+            >>> ImageConvert.convert("input.pdf", "output.jpg", quality=95)
+            'output.jpg'
         """
         input_path = str(input_path)
         output_path = str(output_path)
@@ -274,12 +319,118 @@ class ImageConvert:
         if not cls.is_supported_format(output_path):
             raise ValueError(f"Unsupported output format: {output_ext}")
 
-        image, metadata = cls._load_image(input_path)
+        # Special handling for PDF as output format
+        if output_ext == '.pdf':
+            # If input is already a PDF, use PyMuPDF to copy/optimize it
+            if input_ext == '.pdf':
+                doc = fitz.open(input_path)
+                doc.save(output_path, garbage=4, deflate=True)
+                doc.close()
+                if preserve_timestamps and os.path.exists(input_path):
+                    timestamps = {
+                        'created': os.path.getctime(input_path),
+                        'modified': os.path.getmtime(input_path),
+                        'accessed': os.path.getatime(input_path)
+                    }
+                    cls._apply_file_timestamps(output_path, timestamps)
+                return output_path
+
+            # Convert single image to PDF
+            else:
+                image, metadata = cls._load_image(input_path)
+
+                # Create PDF with same aspect ratio as the image
+                width, height = image.size
+                pdf_w, pdf_h = letter  # default to letter size
+
+                # Create a new PDF with reportlab
+                c = canvas.Canvas(output_path, pagesize=(pdf_w, pdf_h))
+
+                # Calculate positioning to center the image on the page
+                ratio = min(pdf_w/width, pdf_h/height)
+                new_width = width * ratio
+                new_height = height * ratio
+                x_pos = (pdf_w - new_width) / 2
+                y_pos = (pdf_h - new_height) / 2
+
+                # Save image to a temporary buffer
+                img_buffer = io.BytesIO()
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                image.save(img_buffer, format='JPEG', quality=quality)
+                img_buffer.seek(0)
+
+                # Draw the image on the PDF
+                c.drawImage(img_buffer, x_pos, y_pos, width=new_width, height=new_height)
+
+                # If metadata exists, add it to the PDF
+                if preserve_metadata and 'exif' in metadata:
+                    try:
+                        exif = metadata['exif']
+                        if '0th' in exif:
+                            if piexif.ImageIFD.DocumentName in exif['0th']:
+                                doc_name = exif['0th'][piexif.ImageIFD.DocumentName]
+                                if isinstance(doc_name, bytes):
+                                    doc_name = doc_name.decode('utf-8', errors='replace')
+                                c.setTitle(doc_name)
+
+                            if piexif.ImageIFD.Artist in exif['0th']:
+                                artist = exif['0th'][piexif.ImageIFD.Artist]
+                                if isinstance(artist, bytes):
+                                    artist = artist.decode('utf-8', errors='replace')
+                                c.setAuthor(artist)
+                    except Exception as e:
+                        print(f"Warning: Could not apply metadata to PDF: {e}")
+
+                c.save()
+
+                if preserve_timestamps and 'file_timestamps' in metadata:
+                    cls._apply_file_timestamps(output_path, metadata['file_timestamps'])
+
+                return output_path
+
+        # Handle PDF as input with non-PDF output
+        if input_ext == '.pdf' and output_ext != '.pdf':
+            # Convert first page of PDF to image format
+            pdf_document = fitz.open(input_path)
+            if len(pdf_document) == 0:
+                pdf_document.close()
+                raise ValueError(f"PDF file has no pages: {input_path}")
+
+            # Get the first page
+            first_page = pdf_document.load_page(0)
+
+            # Higher resolution for better quality
+            zoom_factor = 2.0  # Adjust as needed for quality
+            mat = fitz.Matrix(zoom_factor, zoom_factor)
+            pix = first_page.get_pixmap(matrix=mat, alpha=False)
+
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+
+            metadata = {'file_timestamps': {
+                'created': os.path.getctime(input_path),
+                'modified': os.path.getmtime(input_path),
+                'accessed': os.path.getatime(input_path)
+            }}
+
+            # Add some PDF metadata
+            metadata['pdf_info'] = {
+                'page_count': len(pdf_document),
+                'title': pdf_document.metadata.get('title', ''),
+                'author': pdf_document.metadata.get('author', '')
+            }
+
+            pdf_document.close()
+        else:
+            # Regular image handling
+            image, metadata = cls._load_image(input_path)
+
         if dpi:
             image.info['dpi'] = dpi
 
         save_options = {}
-        if output_ext in ['.jpg', '.jpeg']:
+        if output_ext in ['.jpg', '.jpeg', '.jfif']:
             save_options['quality'] = quality
             save_options['optimize'] = True
             if image.mode != 'RGB':
@@ -310,6 +461,7 @@ class ImageConvert:
         ext_to_format = {
             '.jpg': 'JPEG',
             '.jpeg': 'JPEG',
+            '.jfif': 'JPEG',
             '.png': 'PNG',
             '.bmp': 'BMP',
             '.tiff': 'TIFF',
@@ -485,7 +637,49 @@ class ImageConvert:
         if not cls.is_supported_format(str(image_path)):
             raise ValueError(f"Unsupported image format: {image_path.suffix}")
 
-        # Load the image and metadata
+        # Special handling for PDF files
+        if image_path.suffix.lower() == '.pdf':
+            try:
+                pdf_doc = fitz.open(str(image_path))
+                page_count = len(pdf_doc)
+
+                info = {
+                    'filename': image_path.name,
+                    'path': str(image_path),
+                    'format': 'PDF',
+                    'page_count': page_count,
+                    'timestamps': {
+                        'created': os.path.getctime(str(image_path)),
+                        'modified': os.path.getmtime(str(image_path)),
+                        'accessed': os.path.getatime(str(image_path))
+                    }
+                }
+
+                # Extract PDF metadata
+                metadata = pdf_doc.metadata
+                if metadata:
+                    info['pdf_metadata'] = {
+                        'title': metadata.get('title', ''),
+                        'author': metadata.get('author', ''),
+                        'subject': metadata.get('subject', ''),
+                        'keywords': metadata.get('keywords', ''),
+                        'creator': metadata.get('creator', ''),
+                        'producer': metadata.get('producer', '')
+                    }
+
+                # Get first page dimensions
+                if page_count > 0:
+                    first_page = pdf_doc.load_page(0)
+                    rect = first_page.rect
+                    info['width'] = rect.width
+                    info['height'] = rect.height
+
+                pdf_doc.close()
+                return info
+            except Exception as e:
+                raise ValueError(f"Error reading PDF file: {e}")
+
+        # Load the image and metadata for non-PDF files
         image, metadata = cls._load_image(image_path)
 
         # Basic image information
@@ -592,9 +786,235 @@ class ImageConvert:
         if 'raw_metadata' in metadata:
             info['raw_metadata'] = metadata['raw_metadata']
 
+        # Include any PDF metadata if available
+        if 'pdf_info' in metadata:
+            info['pdf_info'] = metadata['pdf_info']
+
         # Include any other metadata
         for key, value in metadata.items():
-            if key not in ['exif', 'file_timestamps', 'raw_metadata'] and isinstance(value, (str, int, float)):
+            if key not in ['exif', 'file_timestamps', 'raw_metadata', 'pdf_info'] and isinstance(value, (str, int, float)):
                 info[key] = value
 
         return info
+
+    @classmethod
+    def pdf_to_images(cls,
+                      pdf_path: Union[str, Path],
+                      output_dir: Union[str, Path],
+                      format: str = '.jpg',
+                      quality: int = 95,
+                      dpi: int = 300,
+                      pages: Union[List[int], None] = None) -> List[str]:
+        """
+        Convert a PDF file to a series of images, one per page.
+
+        This method converts each page of a PDF into a separate image file in the specified format.
+        It first renders pages as PNG and then converts to the target format if different from PNG.
+
+        Parameters:
+            pdf_path (str or Path): Path to the PDF file to be converted
+            output_dir (str or Path): Directory where output images will be saved
+            format (str): Output image format (e.g., '.jpg', '.png', '.tiff'), default is '.jpg'
+            quality (int): Image quality (1-100) for formats that support quality settings, default is 95
+            dpi (int): Resolution of output images in dots per inch, default is 300
+            pages (List[int] or None): List of specific page indices to convert (zero-based);
+                                      if None, converts all pages
+
+        Returns:
+            List[str]: A list of paths to the generated image files
+
+        Raises:
+            FileNotFoundError: If the specified PDF file does not exist
+            ValueError: If the PDF has no pages or if no valid pages are specified to process
+
+        Examples:
+            # Convert all pages in a PDF to JPG images
+            image_paths = ImageConverter.pdf_to_images(
+                pdf_path="document.pdf",
+                output_dir="output_images"
+            )
+
+            # Convert specific pages to PNG format with high resolution
+            image_paths = ImageConverter.pdf_to_images(
+                pdf_path="document.pdf",
+                output_dir="output_images",
+                format="png",
+                dpi=600,
+                pages=[0, 2, 4]  # Convert only the first, third, and fifth pages
+            )
+
+        Notes:
+            - The method creates a temporary directory during processing that is automatically cleaned up afterward.
+            - For PNG output, the method directly uses the rendered images; for other formats,
+              it delegates to the class's convert() method.
+            - The resolution is controlled by the dpi parameter, which affects the size and quality of the output images.
+            - Page indexing is zero-based (the first page is index 0).
+        """
+        from pathlib import Path
+        import shutil
+
+        pdf_path = Path(pdf_path)
+        output_dir = Path(output_dir)
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+
+        # Normalize format
+        if not format.startswith('.'):
+            format = f'.{format}'
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        tmp_dir = output_dir / "__pdf_tmp"
+        tmp_dir.mkdir(exist_ok=True)
+
+        zoom = dpi / 72.0
+        doc = fitz.open(str(pdf_path))
+        total = len(doc)
+        if total == 0:
+            doc.close()
+            raise ValueError(f"PDF has no pages: {pdf_path}")
+
+        pages_to_process = range(total) if pages is None else [p for p in pages if 0 <= p < total]
+        if not pages_to_process:
+            doc.close()
+            raise ValueError(f"No valid pages to process: {pages}")
+
+        output_files: List[str] = []
+        # Render each page as PNG first
+        for p in pages_to_process:
+            page = doc.load_page(p)
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+
+            tmp_png = tmp_dir / f"page_{p}.png"
+            pix.save(str(tmp_png))
+
+            final_out = output_dir / f"page_{p}{format}"
+            if format == '.png':
+                # Just move the PNG into place
+                tmp_png.replace(final_out)
+            else:
+                # Use the library’s own convert() to do the heavy lifting
+                cls.convert(
+                    str(tmp_png),
+                    str(final_out),
+                    quality=quality,
+                    preserve_metadata=False,
+                    preserve_timestamps=False
+                )
+            output_files.append(str(final_out))
+
+        doc.close()
+        # Clean up
+        shutil.rmtree(tmp_dir)
+        return output_files
+
+    @classmethod
+    def images_to_pdf(cls, image_paths: List[Union[str, Path]], output_pdf: Union[str, Path],
+                      page_size: str = 'A4', fit_method: str = 'contain',
+                      quality: int = 95, metadata: Dict[str, str] = None) -> str:
+        """
+        Convert multiple images to a single PDF file, with one image per page.
+
+        Args:
+            image_paths (List[Union[str, Path]]): List of paths to image files.
+            output_pdf (Union[str, Path]): Path for the output PDF file.
+            page_size (str, optional): Page size ('A4', 'letter', etc.). Defaults to 'A4'.
+            fit_method (str, optional): How to fit images to pages - 'contain' (preserve aspect ratio),
+                                       'cover' (fill page), 'stretch' (distort to fill). Defaults to 'contain'.
+            quality (int, optional): JPEG compression quality for images in PDF (1-100). Defaults to 95.
+            metadata (Dict[str, str], optional): PDF metadata such as title, author, etc. Defaults to None.
+
+        Returns:
+            str: Path to the created PDF file.
+
+        Raises:
+            FileNotFoundError: If any image file does not exist.
+            ValueError: If no valid images are provided.
+        """
+        # Validate inputs
+        if not image_paths:
+            raise ValueError("No images provided")
+
+        # Convert all paths to Path objects
+        image_paths = [Path(p) for p in image_paths]
+        output_pdf = Path(output_pdf)
+
+        # Check if images exist
+        missing_files = [str(p) for p in image_paths if not p.exists()]
+        if missing_files:
+            raise FileNotFoundError(f"Image files not found: {', '.join(missing_files)}")
+
+        # Filter for supported image formats
+        valid_images = [p for p in image_paths if cls.is_supported_format(str(p))]
+        if not valid_images:
+            raise ValueError("No valid image formats found in the provided list")
+
+        # Determine page size dimensions
+        page_sizes = {
+            'a4': (595, 842),  # A4 in points
+            'letter': (612, 792),  # US Letter in points
+            'legal': (612, 1008),  # US Legal in points
+            'a3': (842, 1191),  # A3 in points
+            'a5': (420, 595),  # A5 in points
+        }
+        page_width, page_height = page_sizes.get(page_size.lower(), page_sizes['a4'])
+
+        # Create a new PDF document
+        c = canvas.Canvas(str(output_pdf), pagesize=(page_width, page_height))
+
+        # Add metadata if provided
+        if metadata:
+            if 'title' in metadata:
+                c.setTitle(metadata['title'])
+            if 'author' in metadata:
+                c.setAuthor(metadata['author'])
+            if 'subject' in metadata:
+                c.setSubject(metadata['subject'])
+            if 'keywords' in metadata:
+                c.setKeywords(metadata['keywords'])
+            if 'creator' in metadata:
+                c.setCreator(metadata['creator'])
+
+        # Process each image
+        for img_path in valid_images:
+            try:
+                img, img_metadata = cls._load_image(img_path)
+                img_width, img_height = img.size
+
+                # Determine scaling and positioning
+                if fit_method == 'contain':
+                    scale = min(page_width / img_width, page_height / img_height)
+                elif fit_method == 'cover':
+                    scale = max(page_width / img_width, page_height / img_height)
+                elif fit_method == 'stretch':
+                    scale = None
+                else:
+                    scale = min(page_width / img_width, page_height / img_height)
+
+                if fit_method == 'stretch' or scale is None:
+                    new_width, new_height = page_width, page_height
+                    x_pos, y_pos = 0, 0
+                else:
+                    new_width = img_width * scale
+                    new_height = img_height * scale
+                    x_pos = (page_width - new_width) / 2
+                    y_pos = (page_height - new_height) / 2
+
+                # Save to buffer
+                img_buffer = io.BytesIO()
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                img.save(img_buffer, format='JPEG', quality=quality)
+                img_buffer.seek(0)
+
+                # ← key change: wrap buffer in ImageReader
+                reader = ImageReader(img_buffer)
+                c.drawImage(reader, x_pos, y_pos, width=new_width, height=new_height)
+
+                c.showPage()
+            except Exception as e:
+                print(f"Error processing image {img_path}: {e}")
+                continue
+
+        c.save()
+        return str(output_pdf)

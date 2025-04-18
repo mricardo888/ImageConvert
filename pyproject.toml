@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imageconvert"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Python library for converting between different image formats with metadata preservation"
 readme = "README.md"
 requires-python = ">=3.7"
 license = "MIT"
 authors = [{name = "mricardo", email = "ricardo.lee.cm@gmail.com"}]
 maintainers = [{name = "mricardo", email = "ricardo.lee.cm@gmail.com"}]
-keywords = ["image", "conversion", "metadata", "exif", "photos", "avif", "heif", "heic"]
+keywords = ["image", "conversion", "metadata", "exif", "photos", "avif", "heif", "heic", "webp", "jfif", "pdf"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3.7",
@@ -22,6 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Multimedia :: Graphics :: Capture",
+    "Topic :: Multimedia :: Graphics :: Viewers",
 ]
 
 dependencies = [
@@ -31,13 +33,15 @@ dependencies = [
     "svglib>=1.2.0",
     "reportlab>=3.6.0",
     "rawpy>=0.17.0",
+    "PyMuPDF>=1.21.0",  # Added for PDF support
     "win32-setctime>=1.1.0; platform_system=='Windows'"
 ]
 
 [project.urls]
 "Homepage" = "https://github.com/mricardo888/ImageConvert"
 "Bug Tracker" = "https://github.com/mricardo888/ImageConvert/issues"
-"Documentation" = "https://github.com/mricardo888/ImageConvert#readme"
+"GitHub Docs" = "https://github.com/mricardo888/ImageConvert#readme"
+"Documentation" = "https://ricardos-projects.gitbook.io/imageconvert-docs"
 
 [tool.setuptools]
 packages = ["imageconvert"]
