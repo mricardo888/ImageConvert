@@ -100,6 +100,7 @@ except ImportError:
     def setctime(path, time):
         pass
 
+
 class ImageConvert:
     """
     A class for converting images between different formats while preserving metadata.
@@ -230,7 +231,8 @@ class ImageConvert:
             raise ValueError(f"Unsupported file format: {ext}")
 
     @staticmethod
-    def _apply_metadata(image: Image.Image, metadata: Dict[str, Any], output_ext: str) -> Tuple[Image.Image, Dict[str, Any]]:
+    def _apply_metadata(image: Image.Image, metadata: Dict[str, Any], output_ext: str) -> Tuple[
+        Image.Image, Dict[str, Any]]:
         """
         Internal method to apply metadata to an image.
 
@@ -347,7 +349,7 @@ class ImageConvert:
                 c = canvas.Canvas(output_path, pagesize=(pdf_w, pdf_h))
 
                 # Calculate positioning to center the image on the page
-                ratio = min(pdf_w/width, pdf_h/height)
+                ratio = min(pdf_w / width, pdf_h / height)
                 new_width = width * ratio
                 new_height = height * ratio
                 x_pos = (pdf_w - new_width) / 2
@@ -412,14 +414,13 @@ class ImageConvert:
                 'created': os.path.getctime(input_path),
                 'modified': os.path.getmtime(input_path),
                 'accessed': os.path.getatime(input_path)
-            }}
-
-            # Add some PDF metadata
-            metadata['pdf_info'] = {
+            }, 'pdf_info': {
                 'page_count': len(pdf_document),
                 'title': pdf_document.metadata.get('title', ''),
                 'author': pdf_document.metadata.get('author', '')
-            }
+            }}
+
+            # Add some PDF metadata
 
             pdf_document.close()
         else:
@@ -505,7 +506,8 @@ class ImageConvert:
                 raise RuntimeError("Could not find a compatible method to save HEIF/AVIF images")
 
             except Exception as e:
-                raise RuntimeError(f"Error saving {output_ext} format: {e}. Make sure pillow_heif is installed correctly.")
+                raise RuntimeError(
+                    f"Error saving {output_ext} format: {e}. Make sure pillow_heif is installed correctly.")
         else:
             image.save(output_path, format=image_format, **save_options)
 
@@ -516,9 +518,9 @@ class ImageConvert:
 
     @classmethod
     def batch_convert(cls, input_dir: Union[str, Path], output_dir: Union[str, Path],
-                     output_format: str = None, recursive: bool = False, quality: int = 95,
-                     preserve_metadata: bool = True, preserve_timestamps: bool = True,
-                     skip_existing: bool = True) -> List[str]:
+                      output_format: str = None, recursive: bool = False, quality: int = 95,
+                      preserve_metadata: bool = True, preserve_timestamps: bool = True,
+                      skip_existing: bool = True) -> List[str]:
         """
         Convert multiple images in a directory to a specified format.
 
@@ -723,7 +725,7 @@ class ImageConvert:
 
                     if piexif.ExifIFD.FNumber in exif:
                         num, den = exif[piexif.ExifIFD.FNumber]
-                        exposure_settings['f_number'] = f"f/{num/den:.1f}"
+                        exposure_settings['f_number'] = f"f/{num / den:.1f}"
 
                     if piexif.ExifIFD.ISOSpeedRatings in exif:
                         exposure_settings['iso'] = exif[piexif.ExifIFD.ISOSpeedRatings]
@@ -738,7 +740,7 @@ class ImageConvert:
 
                 # Extract latitude
                 if (piexif.GPSIFD.GPSLatitudeRef in gps_data and
-                    piexif.GPSIFD.GPSLatitude in gps_data):
+                        piexif.GPSIFD.GPSLatitude in gps_data):
                     lat_ref = gps_data[piexif.GPSIFD.GPSLatitudeRef]
                     lat = gps_data[piexif.GPSIFD.GPSLatitude]
 
@@ -746,14 +748,15 @@ class ImageConvert:
                         lat_ref = lat_ref.decode('ascii')
 
                     if len(lat) == 3:
-                        lat_value = lat[0][0]/lat[0][1] + lat[1][0]/(lat[1][1]*60) + lat[2][0]/(lat[2][1]*3600)
+                        lat_value = lat[0][0] / lat[0][1] + lat[1][0] / (lat[1][1] * 60) + lat[2][0] / (
+                                lat[2][1] * 3600)
                         if lat_ref == 'S':
                             lat_value = -lat_value
                         gps_info['latitude'] = lat_value
 
                 # Extract longitude
                 if (piexif.GPSIFD.GPSLongitudeRef in gps_data and
-                    piexif.GPSIFD.GPSLongitude in gps_data):
+                        piexif.GPSIFD.GPSLongitude in gps_data):
                     lon_ref = gps_data[piexif.GPSIFD.GPSLongitudeRef]
                     lon = gps_data[piexif.GPSIFD.GPSLongitude]
 
@@ -761,7 +764,8 @@ class ImageConvert:
                         lon_ref = lon_ref.decode('ascii')
 
                     if len(lon) == 3:
-                        lon_value = lon[0][0]/lon[0][1] + lon[1][0]/(lon[1][1]*60) + lon[2][0]/(lon[2][1]*3600)
+                        lon_value = lon[0][0] / lon[0][1] + lon[1][0] / (lon[1][1] * 60) + lon[2][0] / (
+                                lon[2][1] * 3600)
                         if lon_ref == 'W':
                             lon_value = -lon_value
                         gps_info['longitude'] = lon_value
@@ -792,7 +796,8 @@ class ImageConvert:
 
         # Include any other metadata
         for key, value in metadata.items():
-            if key not in ['exif', 'file_timestamps', 'raw_metadata', 'pdf_info'] and isinstance(value, (str, int, float)):
+            if key not in ['exif', 'file_timestamps', 'raw_metadata', 'pdf_info'] and isinstance(value,
+                                                                                                 (str, int, float)):
                 info[key] = value
 
         return info
