@@ -9,5 +9,5 @@ AVIF support requires Pillow 9.3.0 or higher.
 
 from .imageconvert import ImageConvert
 
-__version__ = "0.2.0"
+__version__ = "0.3.2"
 __all__ = ["ImageConvert"]

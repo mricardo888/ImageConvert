@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imageconvert"
-version = "0.3.1"
+version = "0.3.2"
 description = "A Python library for converting between different image formats with metadata preservation"
 readme = "README.md"
 requires-python = ">=3.7"
