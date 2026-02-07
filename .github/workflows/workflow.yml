@@ -5,10 +5,10 @@ on:
     branches:
       - main
     tags:
-      - 'v*'  # Trigger only on version tags like v0.1.0
+      - 'v*'
 
 permissions:
-  contents: read
+  contents: write  # Changed from 'read' to 'write' to allow creating releases
 
 jobs:
   build-and-publish:
@@ -31,6 +31,16 @@ jobs:
 
     - name: Build imageconvert
       run: python -m build
+
+    # NEW STEP: Create the GitHub Release
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/') # Ensures release only happens on tags
+      with:
+        files: dist/* # Uploads your .whl and .tar.gz to the release
+        generate_release_notes: true       # Automatically generates "What's Changed"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload to PyPI
       env:

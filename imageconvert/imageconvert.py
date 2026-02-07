@@ -9,7 +9,6 @@ Supported formats:
 - BMP (.bmp)
 - TIFF (.tiff, .tif)
 - WebP (.webp)
-- SVG (.svg)
 - RAW (.raw)
 - HEIF/HEIC (.heif, .heic)
 - AVIF (.avif)
@@ -26,43 +25,24 @@ Usage examples:
 
     from imageconvert import ImageConvert
 
-    # Convert a single image from PNG to AVIF
-    ImageConvert.convert("input.png", "output.avif")
-
-    # Batch convert an entire folder to WebP
-    ImageConvert.batch_convert("folder_in", "folder_out", output_format=".webp", recursive=True)
-
-    # Get detailed image information
-    info = ImageConvert.get_image_info("image.jpg")
-    print(info["width"], info["height"], info.get("camera"))
-
-    # Convert PDF to images
-    ImageConvert.pdf_to_images("document.pdf", "output_folder", format=".jpg")
-
-    # Convert images to PDF
-    ImageConvert.images_to_pdf(["img1.jpg", "img2.png"], "output.pdf")
-
 """
 
 import io
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, Union, List, Dict, Any, Tuple
+from typing import Optional, Union, List, Dict, Any, Tuple, Iterable, Generator, Callable
 
 import fitz
 import piexif
 import pillow_heif
 import rawpy
 from PIL import Image
-from reportlab.graphics import renderPM
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
-from svglib.svglib import svg2rlg
 
-# Register HEIF/AVIF support
 try:
-    # Try different registration methods for different pillow_heif versions
     try:
         pillow_heif.register_heif_opener()
     except Exception:
@@ -73,7 +53,6 @@ try:
     except Exception:
         pass
 
-    # Add PIL format registration
     try:
         Image.register_mime("AVIF", "image/avif")
         Image.register_extension(".avif", "AVIF")
@@ -87,7 +66,6 @@ try:
 except ImportError:
     has_avif_support = False
 
-# Register JFIF as JPEG variant
 try:
     Image.register_mime("JFIF", "image/jpeg")
     Image.register_extension(".jfif", "JPEG")
@@ -109,14 +87,12 @@ class ImageConvert:
     directories, and extracting image metadata.
     """
 
-    # Supported file extensions
     SUPPORTED_EXTENSIONS = [
         ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif",
-        ".webp", ".heif", ".heic", ".svg", ".raw", ".avif",
+        ".webp", ".heif", ".heic", ".raw", ".avif",
         ".jfif", ".pdf"
     ]
 
-    # Formats that support EXIF metadata
     EXIF_SUPPORTED_FORMATS = [
         ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".jfif"
     ]
@@ -188,11 +164,6 @@ class ImageConvert:
                     metadata[key] = value
             return image, metadata
 
-        elif ext == '.svg':
-            drawing = svg2rlg(input_path)
-            image = Image.open(io.BytesIO(renderPM.drawToString(drawing, fmt='PNG')))
-            return image, metadata
-
         elif ext == '.raw':
             with rawpy.imread(input_path) as raw:
                 rgb = raw.postprocess()
@@ -205,7 +176,6 @@ class ImageConvert:
             return image, metadata
 
         elif ext == '.pdf':
-            # Extract the first page of the PDF as an image
             pdf_document = fitz.open(input_path)
             if len(pdf_document) > 0:
                 metadata['pdf_info'] = {
@@ -216,7 +186,6 @@ class ImageConvert:
                     'keywords': pdf_document.metadata.get('keywords', '')
                 }
 
-                # Convert first page to image
                 first_page = pdf_document.load_page(0)
                 pix = first_page.get_pixmap(alpha=False)
                 img_data = pix.tobytes("png")
@@ -292,17 +261,9 @@ class ImageConvert:
             FileNotFoundError: If the input file does not exist.
             ValueError: If input or output format is not supported.
             RuntimeError: If AVIF support is required but not available.
-            NotImplementedError: If conversion to SVG or RAW is attempted.
+            NotImplementedError: If conversion to RAW is attempted.
 
         Examples:
-            >>> ImageConvert.convert("input.jpg", "output.png")
-            'output.png'
-
-            >>> ImageConvert.convert("input.raw", "output.tiff", quality=100, preserve_metadata=True)
-            'output.tiff'
-
-            >>> ImageConvert.convert("input.pdf", "output.jpg", quality=95)
-            'output.jpg'
         """
         input_path = str(input_path)
         output_path = str(output_path)
@@ -321,9 +282,7 @@ class ImageConvert:
         if not cls.is_supported_format(output_path):
             raise ValueError(f"Unsupported output format: {output_ext}")
 
-        # Special handling for PDF as output format
         if output_ext == '.pdf':
-            # If input is already a PDF, use PyMuPDF to copy/optimize it
             if input_ext == '.pdf':
                 doc = fitz.open(input_path)
                 doc.save(output_path, garbage=4, deflate=True)
@@ -337,35 +296,29 @@ class ImageConvert:
                     cls._apply_file_timestamps(output_path, timestamps)
                 return output_path
 
-            # Convert single image to PDF
             else:
                 image, metadata = cls._load_image(input_path)
 
-                # Create PDF with same aspect ratio as the image
                 width, height = image.size
-                pdf_w, pdf_h = letter  # default to letter size
+                pdf_w, pdf_h = letter
 
-                # Create a new PDF with reportlab
                 c = canvas.Canvas(output_path, pagesize=(pdf_w, pdf_h))
 
-                # Calculate positioning to center the image on the page
                 ratio = min(pdf_w / width, pdf_h / height)
                 new_width = width * ratio
                 new_height = height * ratio
                 x_pos = (pdf_w - new_width) / 2
                 y_pos = (pdf_h - new_height) / 2
 
-                # Save image to a temporary buffer
                 img_buffer = io.BytesIO()
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                 image.save(img_buffer, format='JPEG', quality=quality)
                 img_buffer.seek(0)
 
-                # Draw the image on the PDF
-                c.drawImage(img_buffer, x_pos, y_pos, width=new_width, height=new_height)
+                reader = ImageReader(img_buffer)
+                c.drawImage(reader, x_pos, y_pos, width=new_width, height=new_height)
 
-                # If metadata exists, add it to the PDF
                 if preserve_metadata and 'exif' in metadata:
                     try:
                         exif = metadata['exif']
@@ -391,19 +344,15 @@ class ImageConvert:
 
                 return output_path
 
-        # Handle PDF as input with non-PDF output
         if input_ext == '.pdf' and output_ext != '.pdf':
-            # Convert first page of PDF to image format
             pdf_document = fitz.open(input_path)
             if len(pdf_document) == 0:
                 pdf_document.close()
                 raise ValueError(f"PDF file has no pages: {input_path}")
 
-            # Get the first page
             first_page = pdf_document.load_page(0)
 
-            # Higher resolution for better quality
-            zoom_factor = 2.0  # Adjust as needed for quality
+            zoom_factor = 2.0
             mat = fitz.Matrix(zoom_factor, zoom_factor)
             pix = first_page.get_pixmap(matrix=mat, alpha=False)
 
@@ -420,11 +369,8 @@ class ImageConvert:
                 'author': pdf_document.metadata.get('author', '')
             }}
 
-            # Add some PDF metadata
-
             pdf_document.close()
         else:
-            # Regular image handling
             image, metadata = cls._load_image(input_path)
 
         if dpi:
@@ -450,8 +396,6 @@ class ImageConvert:
             save_options['lossless'] = False
         elif output_ext in ['.heif', '.heic']:
             save_options['quality'] = quality
-        elif output_ext == '.svg':
-            raise NotImplementedError("Conversion to SVG is not supported")
         elif output_ext == '.raw':
             raise NotImplementedError("Conversion to RAW is not supported")
 
@@ -475,16 +419,11 @@ class ImageConvert:
 
         image_format = ext_to_format.get(output_ext, None)
 
-        # Special handling for AVIF and HEIF formats
         if output_ext in ['.avif', '.heif', '.heic']:
             try:
-                # Convert to RGB if needed
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
 
-                # Try multiple approaches to handle different pillow_heif versions
-
-                # Approach 1: Try using from_pillow method (common in many versions)
                 try:
                     heif_image = pillow_heif.from_pillow(image)
                     if output_ext == '.avif':
@@ -495,14 +434,12 @@ class ImageConvert:
                 except (AttributeError, TypeError):
                     pass
 
-                # Approach 2: Try direct PIL save after registration (works in some versions)
                 try:
                     image.save(output_path, format=image_format, **save_options)
                     return output_path
                 except (KeyError, ValueError, AttributeError):
                     pass
 
-                # If we got here, both approaches failed
                 raise RuntimeError("Could not find a compatible method to save HEIF/AVIF images")
 
             except Exception as e:
@@ -520,7 +457,9 @@ class ImageConvert:
     def batch_convert(cls, input_dir: Union[str, Path], output_dir: Union[str, Path],
                       output_format: str = None, recursive: bool = False, quality: int = 95,
                       preserve_metadata: bool = True, preserve_timestamps: bool = True,
-                      skip_existing: bool = True) -> List[str]:
+                      skip_existing: bool = True, workers: int = 1, stream: bool = False,
+                      progress_callback: Optional[Callable[[Path, Path, Optional[Exception]], None]] = None
+                      ) -> Union[List[str], Generator[str, None, List[str]]]:
         """
         Convert multiple images in a directory to a specified format.
 
@@ -534,20 +473,18 @@ class ImageConvert:
             preserve_metadata (bool, optional): Whether to preserve image metadata. Defaults to True.
             preserve_timestamps (bool, optional): Whether to preserve file timestamps. Defaults to True.
             skip_existing (bool, optional): Skip files that already exist in the output directory. Defaults to True.
+            workers (int, optional): Number of parallel worker processes. Defaults to 1 (sequential).
+            stream (bool, optional): If True, yields each converted file path as it finishes instead of returning a list.
+                                     Defaults to False.
+            progress_callback (Callable, optional): Called as progress_callback(input_path, output_path, error) after
+                                                    each attempt. Defaults to None.
 
         Returns:
-            List[str]: List of paths to all converted files.
+            List[str] | Generator[str, None, List[str]]: List of paths to all converted files or a generator if stream=True.
 
         Raises:
             FileNotFoundError: If the input directory does not exist.
             ValueError: If the output format is not supported.
-
-        Examples:
-            >>> ImageConvert.batch_convert("photos", "converted", output_format=".webp")
-            ['converted/img1.webp', 'converted/img2.webp', ...]
-
-            >>> ImageConvert.batch_convert("raw_photos", "processed", recursive=True, preserve_metadata=False)
-            ['processed/img1.jpg', 'processed/vacation/img2.jpg', ...]
         """
         input_dir = Path(input_dir)
         output_dir = Path(output_dir)
@@ -559,45 +496,78 @@ class ImageConvert:
             raise ValueError(f"Unsupported output format: {output_format}")
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        converted_files = []
 
-        # Determine which files to process
-        if recursive:
-            all_files = list(input_dir.glob('**/*'))
-        else:
-            all_files = list(input_dir.glob('*'))
+        def iter_files() -> Iterable[Tuple[Path, Path]]:
+            globber = input_dir.rglob('*') if recursive else input_dir.glob('*')
+            for input_file in globber:
+                if not input_file.is_file():
+                    continue
+                if not cls.is_supported_format(str(input_file)):
+                    continue
 
-        image_files = [f for f in all_files if f.is_file() and cls.is_supported_format(str(f))]
+                rel_path = input_file.relative_to(input_dir)
+                output_file = (output_dir / rel_path.with_suffix(output_format)) if output_format else (output_dir / rel_path)
+                output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        for input_file in image_files:
-            # Calculate relative path to maintain directory structure
-            rel_path = input_file.relative_to(input_dir)
+                if skip_existing and output_file.exists():
+                    try:
+                        if os.path.getmtime(output_file) >= os.path.getmtime(input_file):
+                            continue
+                    except OSError:
+                        continue
 
-            if output_format:
-                output_file = output_dir / rel_path.with_suffix(output_format)
-            else:
-                output_file = output_dir / rel_path
+                yield input_file, output_file
 
-            # Create parent directories if needed
-            output_file.parent.mkdir(parents=True, exist_ok=True)
+        def stream_sequential(files_iter: Iterable[Tuple[Path, Path]]) -> Generator[str, None, None]:
+            for input_file, output_file in files_iter:
+                try:
+                    result = cls.convert(
+                        input_file,
+                        output_file,
+                        quality=quality,
+                        preserve_metadata=preserve_metadata,
+                        preserve_timestamps=preserve_timestamps
+                    )
+                    if progress_callback:
+                        progress_callback(input_file, output_file, None)
+                    yield result
+                except Exception as e:
+                    print(f"Error converting {input_file}: {e}")
+                    if progress_callback:
+                        progress_callback(input_file, output_file, e)
 
-            # Skip if output file exists and skip_existing is True
-            if skip_existing and output_file.exists():
-                continue
+        def stream_parallel(files_list: List[Tuple[Path, Path]]) -> Generator[str, None, None]:
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_paths = {
+                    executor.submit(
+                        _convert_worker,
+                        (input_file, output_file, quality, preserve_metadata, preserve_timestamps)
+                    ): (input_file, output_file)
+                    for input_file, output_file in files_list
+                }
+                for future in as_completed(future_to_paths):
+                    input_file, output_file = future_to_paths[future]
+                    result_path, err = future.result()
+                    if err:
+                        print(f"Error converting {input_file}: {err}")
+                        if progress_callback:
+                            progress_callback(input_file, output_file, err)
+                        continue
+                    if result_path:
+                        if progress_callback:
+                            progress_callback(input_file, output_file, None)
+                        yield result_path
 
-            try:
-                result = cls.convert(
-                    input_file,
-                    output_file,
-                    quality=quality,
-                    preserve_metadata=preserve_metadata,
-                    preserve_timestamps=preserve_timestamps
-                )
-                converted_files.append(result)
-            except Exception as e:
-                print(f"Error converting {input_file}: {e}")
+        files_iter = iter_files()
 
-        return converted_files
+        if stream:
+            if workers and workers > 1:
+                return stream_parallel(list(files_iter))
+            return stream_sequential(files_iter)
+
+        if workers and workers > 1:
+            return list(stream_parallel(list(files_iter)))
+        return list(stream_sequential(files_iter))
 
     @classmethod
     def get_image_info(cls, image_path: Union[str, Path]) -> Dict[str, Any]:
@@ -623,13 +593,6 @@ class ImageConvert:
             ValueError: If the file format is not supported.
 
         Examples:
-            >>> info = ImageConvert.get_image_info("vacation.jpg")
-            >>> print(f"Image size: {info['width']}x{info['height']}")
-            Image size: 3840x2160
-
-            >>> if 'gps' in info:
-            ...     print(f"Location: {info['gps']}")
-            Location: {'latitude': 37.7749, 'longitude': -122.4194}
         """
         image_path = Path(image_path)
 
@@ -639,7 +602,6 @@ class ImageConvert:
         if not cls.is_supported_format(str(image_path)):
             raise ValueError(f"Unsupported image format: {image_path.suffix}")
 
-        # Special handling for PDF files
         if image_path.suffix.lower() == '.pdf':
             try:
                 pdf_doc = fitz.open(str(image_path))
@@ -657,7 +619,6 @@ class ImageConvert:
                     }
                 }
 
-                # Extract PDF metadata
                 metadata = pdf_doc.metadata
                 if metadata:
                     info['pdf_metadata'] = {
@@ -669,7 +630,6 @@ class ImageConvert:
                         'producer': metadata.get('producer', '')
                     }
 
-                # Get first page dimensions
                 if page_count > 0:
                     first_page = pdf_doc.load_page(0)
                     rect = first_page.rect
@@ -681,10 +641,8 @@ class ImageConvert:
             except Exception as e:
                 raise ValueError(f"Error reading PDF file: {e}")
 
-        # Load the image and metadata for non-PDF files
         image, metadata = cls._load_image(image_path)
 
-        # Basic image information
         info = {
             'filename': image_path.name,
             'path': str(image_path),
@@ -695,11 +653,9 @@ class ImageConvert:
             'timestamps': metadata.get('file_timestamps', {})
         }
 
-        # Process EXIF data if available
         if 'exif' in metadata:
             exif_data = metadata['exif']
 
-            # Extract camera information
             if '0th' in exif_data and piexif.ImageIFD.Make in exif_data['0th']:
                 make = exif_data['0th'][piexif.ImageIFD.Make]
                 model = exif_data['0th'].get(piexif.ImageIFD.Model, b'')
@@ -714,7 +670,6 @@ class ImageConvert:
                     'model': model
                 }
 
-                # Add exposure settings if available
                 if 'Exif' in exif_data:
                     exif = exif_data['Exif']
                     exposure_settings = {}
@@ -733,12 +688,10 @@ class ImageConvert:
                     if exposure_settings:
                         info['camera']['exposure'] = exposure_settings
 
-            # Extract GPS information if available
             if 'GPS' in exif_data and exif_data['GPS']:
                 gps_data = exif_data['GPS']
                 gps_info = {}
 
-                # Extract latitude
                 if (piexif.GPSIFD.GPSLatitudeRef in gps_data and
                         piexif.GPSIFD.GPSLatitude in gps_data):
                     lat_ref = gps_data[piexif.GPSIFD.GPSLatitudeRef]
@@ -754,7 +707,6 @@ class ImageConvert:
                             lat_value = -lat_value
                         gps_info['latitude'] = lat_value
 
-                # Extract longitude
                 if (piexif.GPSIFD.GPSLongitudeRef in gps_data and
                         piexif.GPSIFD.GPSLongitude in gps_data):
                     lon_ref = gps_data[piexif.GPSIFD.GPSLongitudeRef]
@@ -770,7 +722,6 @@ class ImageConvert:
                             lon_value = -lon_value
                         gps_info['longitude'] = lon_value
 
-                # Extract altitude
                 if piexif.GPSIFD.GPSAltitude in gps_data:
                     alt = gps_data[piexif.GPSIFD.GPSAltitude]
                     alt_ref = gps_data.get(piexif.GPSIFD.GPSAltitudeRef, 0)
@@ -783,18 +734,14 @@ class ImageConvert:
                 if gps_info:
                     info['gps'] = gps_info
 
-            # Add raw EXIF data for advanced users
             info['exif_raw'] = metadata['exif']
 
-        # Include any RAW metadata if available
         if 'raw_metadata' in metadata:
             info['raw_metadata'] = metadata['raw_metadata']
 
-        # Include any PDF metadata if available
         if 'pdf_info' in metadata:
             info['pdf_info'] = metadata['pdf_info']
 
-        # Include any other metadata
         for key, value in metadata.items():
             if key not in ['exif', 'file_timestamps', 'raw_metadata', 'pdf_info'] and isinstance(value,
                                                                                                  (str, int, float)):
@@ -832,22 +779,6 @@ class ImageConvert:
             FileNotFoundError: If the specified PDF file does not exist
             ValueError: If the PDF has no pages or if no valid pages are specified to process
 
-        Examples:
-            # Convert all pages in a PDF to JPG images
-            image_paths = ImageConverter.pdf_to_images(
-                pdf_path="document.pdf",
-                output_dir="output_images"
-            )
-
-            # Convert specific pages to PNG format with high resolution
-            image_paths = ImageConverter.pdf_to_images(
-                pdf_path="document.pdf",
-                output_dir="output_images",
-                format="png",
-                dpi=600,
-                pages=[0, 2, 4]  # Convert only the first, third, and fifth pages
-            )
-
         Notes:
             - The method creates a temporary directory during processing that is automatically cleaned up afterward.
             - For PNG output, the method directly uses the rendered images; for other formats,
@@ -863,7 +794,6 @@ class ImageConvert:
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
-        # Normalize format
         if not format.startswith('.'):
             format = f'.{format}'
 
@@ -884,7 +814,6 @@ class ImageConvert:
             raise ValueError(f"No valid pages to process: {pages}")
 
         output_files: List[str] = []
-        # Render each page as PNG first
         for p in pages_to_process:
             page = doc.load_page(p)
             mat = fitz.Matrix(zoom, zoom)
@@ -895,10 +824,8 @@ class ImageConvert:
 
             final_out = output_dir / f"page_{p}{format}"
             if format == '.png':
-                # Just move the PNG into place
                 tmp_png.replace(final_out)
             else:
-                # Use the library’s own convert() to do the heavy lifting
                 cls.convert(
                     str(tmp_png),
                     str(final_out),
@@ -909,7 +836,6 @@ class ImageConvert:
             output_files.append(str(final_out))
 
         doc.close()
-        # Clean up
         shutil.rmtree(tmp_dir)
         return output_files
 
@@ -936,38 +862,31 @@ class ImageConvert:
             FileNotFoundError: If any image file does not exist.
             ValueError: If no valid images are provided.
         """
-        # Validate inputs
         if not image_paths:
             raise ValueError("No images provided")
 
-        # Convert all paths to Path objects
         image_paths = [Path(p) for p in image_paths]
         output_pdf = Path(output_pdf)
 
-        # Check if images exist
         missing_files = [str(p) for p in image_paths if not p.exists()]
         if missing_files:
             raise FileNotFoundError(f"Image files not found: {', '.join(missing_files)}")
 
-        # Filter for supported image formats
         valid_images = [p for p in image_paths if cls.is_supported_format(str(p))]
         if not valid_images:
             raise ValueError("No valid image formats found in the provided list")
 
-        # Determine page size dimensions
         page_sizes = {
-            'a4': (595, 842),  # A4 in points
-            'letter': (612, 792),  # US Letter in points
-            'legal': (612, 1008),  # US Legal in points
-            'a3': (842, 1191),  # A3 in points
-            'a5': (420, 595),  # A5 in points
+            'a4': (595, 842),
+            'letter': (612, 792),
+            'legal': (612, 1008),
+            'a3': (842, 1191),
+            'a5': (420, 595),
         }
         page_width, page_height = page_sizes.get(page_size.lower(), page_sizes['a4'])
 
-        # Create a new PDF document
         c = canvas.Canvas(str(output_pdf), pagesize=(page_width, page_height))
 
-        # Add metadata if provided
         if metadata:
             if 'title' in metadata:
                 c.setTitle(metadata['title'])
@@ -980,13 +899,11 @@ class ImageConvert:
             if 'creator' in metadata:
                 c.setCreator(metadata['creator'])
 
-        # Process each image
         for img_path in valid_images:
             try:
                 img, img_metadata = cls._load_image(img_path)
                 img_width, img_height = img.size
 
-                # Determine scaling and positioning
                 if fit_method == 'contain':
                     scale = min(page_width / img_width, page_height / img_height)
                 elif fit_method == 'cover':
@@ -1005,14 +922,12 @@ class ImageConvert:
                     x_pos = (page_width - new_width) / 2
                     y_pos = (page_height - new_height) / 2
 
-                # Save to buffer
                 img_buffer = io.BytesIO()
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 img.save(img_buffer, format='JPEG', quality=quality)
                 img_buffer.seek(0)
 
-                # ← key change: wrap buffer in ImageReader
                 reader = ImageReader(img_buffer)
                 c.drawImage(reader, x_pos, y_pos, width=new_width, height=new_height)
 
@@ -1023,3 +938,18 @@ class ImageConvert:
 
         c.save()
         return str(output_pdf)
+
+
+def _convert_worker(args: Tuple[Path, Path, int, bool, bool]) -> Tuple[Optional[str], Optional[Exception]]:
+    input_file, output_file, quality, preserve_metadata, preserve_timestamps = args
+    try:
+        result = ImageConvert.convert(
+            input_file,
+            output_file,
+            quality=quality,
+            preserve_metadata=preserve_metadata,
+            preserve_timestamps=preserve_timestamps
+        )
+        return result, None
+    except Exception as exc:
+        return None, exc

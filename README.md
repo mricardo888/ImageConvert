@@ -15,7 +15,7 @@
     * **Image to PDF:** Compile multiple images into a single document.
 * **💾 Metadata Safe:** Preserves EXIF data (Camera model, ISO, GPS) during conversion.
 * **⏱️ Time Travel:** Retains original file creation, access, and modification timestamps (Windows/Linux/macOS supported).
-* **📂 Batch Processing:** Recursively convert entire folder structures with a single command.
+* **📂 Batch Processing:** Recursively convert entire folder structures with a single command (stream results, optional multi-core).
 
 ## 📃 Full Documentation
 
@@ -41,10 +41,8 @@ Convert single images easily. Metadata is preserved by default.
 ```python
 from imageconvert import ImageConvert
 
-# Simple conversion
 ImageConvert.convert("vacation.heic", "vacation.jpg")
 
-# Conversion with quality control
 ImageConvert.convert("input.png", "output.webp", quality=85)
 
 ```
@@ -68,16 +66,25 @@ ImageConvert.images_to_pdf(
 
 ### 3. Batch Processing
 
-Convert an entire directory tree. Useful for optimizing libraries or web assets.
+Convert an entire directory tree. Useful for optimizing libraries or web assets. Stream results as they finish and optionally use multiple processes.
 
 ```python
-ImageConvert.batch_convert(
+results = ImageConvert.batch_convert(
     input_dir="./raw_photos", 
     output_dir="./web_ready", 
     output_format=".webp", 
-    recursive=True,      # Process subfolders
-    skip_existing=True   # Resume interrupted jobs
+    recursive=True,
+    skip_existing=True,
+    workers=4,           # optional parallelism
+    stream=True          # yields as soon as a file is done
 )
+
+for out_path in results:
+    print("converted:", out_path)
+
+```
+
+`skip_existing` now compares modification times, so edited sources are re-converted even if an older output file exists.
 
 ```
 
@@ -109,7 +116,6 @@ if 'gps' in info:
 | **TIFF** | `.tiff`, `.tif` | ✅ | ✅ | High quality archival |
 | **PDF** | `.pdf` | ✅ | ✅ | Multi-page support |
 | **RAW** | `.raw` | ✅ | ❌ | Read-only |
-| **SVG** | `.svg` | ✅ | ❌ | Read-only |
 | **BMP** | `.bmp` | ✅ | ✅ | Basic bitmap |
 
 ## 🤝 Contributing
